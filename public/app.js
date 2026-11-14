@@ -617,6 +617,7 @@ async function ensureMap() {
     minZoom: 2.4,
     maxZoom: 10,
     attributionControl: false,
+    cooperativeGestures: true,
     dragRotate: false,
     pitchWithRotate: false,
   });
@@ -1522,6 +1523,7 @@ function ensureNetworkMap() {
       minZoom: 2.4,
       maxZoom: 11,
       attributionControl: false,
+      cooperativeGestures: true,
       dragRotate: false,
       pitchWithRotate: false,
     });
@@ -1955,6 +1957,9 @@ function renderNetworkGraph(data) {
   svg.addEventListener(
     'wheel',
     (event) => {
+      // Sem Ctrl/Meta, deixa o wheel rolar a página. O zoom do grafo é
+      // intencional para não sequestrar a rolagem da tela.
+      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const view = state.networkGraphView;
       const local = toSvgPoint(event);
@@ -1980,7 +1985,9 @@ function renderNetworkGraph(data) {
         origin: { x: point.x, y: point.y },
         moved: false,
       };
-      svg.setPointerCapture(event.pointerId);
+      // Não capturamos o pointer no clique: se capturarmos, o evento de click
+      // é redirecionado para o SVG e o nó deixa de abrir a ficha da empresa.
+      // A captura só é ativada quando o arraste realmente começa.
       return;
     }
     state.networkGraphPan = {
@@ -2000,7 +2007,14 @@ function renderNetworkGraph(data) {
       if (!point) return;
       const dx = (local.x - drag.start.x) / state.networkGraphView.k;
       const dy = (local.y - drag.start.y) / state.networkGraphView.k;
-      if (Math.hypot(dx, dy) > 3) drag.moved = true;
+      if (!drag.moved && Math.hypot(dx, dy) > 3) {
+        drag.moved = true;
+        try {
+          svg.setPointerCapture(event.pointerId);
+        } catch {
+          // pointer capture é opcional
+        }
+      }
       point.x = Math.max(24, Math.min(layout.width - 24, drag.origin.x + dx));
       point.y = Math.max(24, Math.min(layout.height - 24, drag.origin.y + dy));
       redrawGraphGeometry();

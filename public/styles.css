@@ -838,12 +838,9 @@ tbody tr:last-child td { border-bottom: none; }
 .network-discovery-filters .field label { font-size: 9px; }
 .network-discovery-filters .field input,
 .network-discovery-filters .field select { padding: 6px 8px; font-size: 11px; }
-.hub-list { margin-top: 12px; max-height: 330px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+.hub-list { margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; }
 .hub-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .hub-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   padding: 8px 10px;
   text-align: left;
   color: var(--muted);
@@ -873,6 +870,7 @@ tbody tr:last-child td { border-bottom: none; }
 .network-graph-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .network-graph-head h2 { margin: 2px 0; font-size: 20px; letter-spacing: -0.03em; }
 .network-graph-head p { margin: 0; }
+.graph-hint { margin-top: 4px !important; color: var(--muted); font-size: 9.5px; }
 .network-legend {
   display: flex;
   flex-wrap: wrap;
@@ -904,7 +902,7 @@ tbody tr:last-child td { border-bottom: none; }
   background-size: 28px 28px;
   overflow: hidden;
 }
-.network-graph svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.network-graph svg { width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
 .network-graph svg:active { cursor: grabbing; }
 .network-graph .graph-edge { stroke-opacity: 0.55; }
 .network-graph .graph-edge.media { stroke-dasharray: 4 4; }
