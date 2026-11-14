@@ -21,7 +21,7 @@ export const DEFAULT_NETWORK_LIMITS: NetworkLimits = {
 
 const CONTACT_TYPES_SQL = CONTACT_TYPES.map((type) => `'${type}'`).join(', ');
 
-const EMPRESA_RANK_SQL = `
+export const EMPRESA_RANK_SQL = `
   SELECT * FROM (
     SELECT
       cnpj_base,
@@ -32,6 +32,7 @@ const EMPRESA_RANK_SQL = `
       municipio_codigo,
       municipio_nome,
       municipio_ibge,
+      cnae_principal,
       situacao,
       situacao_descricao,
       data_inicio,

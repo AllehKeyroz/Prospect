@@ -1,6 +1,7 @@
 import type {
   ContactCompanyRow,
   ContactRow,
+  ContactType,
   NetworkCompanyRow,
   NetworkLimits,
   PartnerCompanyRow,
@@ -266,6 +267,75 @@ export function buildCompanyGraph(input: {
 
   const graphNodes = [...nodes.values()];
 
+  const empresas = graphNodes
+    .filter((node) => node.tipo === 'empresa')
+    .map((node) => ({
+      cnpj_base: node.cnpj_base ?? '',
+      cnpj: node.cnpj ?? null,
+      razao_social: node.rotulo,
+      nome_fantasia: null,
+      uf: node.uf ?? null,
+      municipio: node.municipio ?? null,
+      municipio_ibge: node.municipio_ibge ?? null,
+      situacao: node.situacao ?? null,
+      idade_anos: node.idade_anos ?? null,
+      capital_social: node.capital_social ?? null,
+      relacoes: node.relacoes ?? [],
+    }));
+
+  return {
+    nodes: graphNodes,
+    edges: [...edges.values()],
+    empresas,
+  };
+}
+
+/**
+ * Grafo de um hub identificado (e-mail, telefone, endereço ou marca).
+ * O hub é o nó central; as empresas são as pontas. Não expandimos os sócios
+ * dessas empresas aqui para manter a descoberta rápida e legível.
+ */
+export function buildHubGraph(input: {
+  tipo: ContactType;
+  valor: string;
+  rotulo: string;
+  total: number;
+  companies: NetworkCompanyRow[];
+}): CompanyGraph {
+  const { tipo, valor, rotulo, total, companies } = input;
+  const meta = CONTACT_META[tipo];
+  const hubId = `${tipo}:${valor}`;
+  const nodes = new Map<string, GraphNode>();
+  const edges = new Map<string, GraphEdge>();
+
+  nodes.set(hubId, {
+    id: hubId,
+    tipo,
+    rotulo: rotulo || valor,
+    subtitulo: `${total} empresa${total === 1 ? '' : 's'}`,
+    hub: true,
+    central: true,
+    ocorrencias: total,
+    relacoes: ['hub'],
+  });
+
+  for (const company of companies) {
+    const node = toCompanyNode(company, 'hub');
+    nodes.set(node.id, node);
+    const edgeId = `${hubId}|${node.id}|${meta.edge}`;
+    edges.set(edgeId, {
+      id: edgeId,
+      origem: hubId,
+      destino: node.id,
+      tipo: meta.edge,
+      rotulo: meta.rotulo,
+      confianca: 'media',
+      evidencias: [`${meta.evidencia} (${total} empresa${total === 1 ? '' : 's'})`],
+      peso: 2,
+    });
+  }
+
+  const graphNodes = [...nodes.values()];
   const empresas = graphNodes
     .filter((node) => node.tipo === 'empresa')
     .map((node) => ({

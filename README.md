@@ -28,7 +28,8 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
   - **buscas salvas** (perfis reutilizáveis);
   - **passaporte histórico da empresa** com fatos, eventos datados, cobertura e resumo da rede;
   - **mapa de ligações** com sócios, e-mails, telefones, endereços, marcas, hubs e confiança por aresta;
-  - **mapa geográfico da rede** e lista de empresas conectadas;
+  - **redes identificadas automaticamente**: lista de hubs de contato, filtros por tipo/UF/CNAE e exploração sem precisar saber CNPJ;
+  - **mapa geográfico da rede** com o Brasil visível e lista de empresas conectadas;
   - ficha cadastral com estabelecimentos, sócios e Simples/MEI;
   - exportação CSV;
   - **mapa do Brasil** com hover/clique em região, estado e cidade, lista sincronizada, métricas e raio-X competitivo;
@@ -152,6 +153,8 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | `GET` | `/api/mercado?nivel=uf&codigo=SP` | Raio-X competitivo do território |
 | `GET` | `/api/timeline` | Nascimentos e fechamentos por ano |
 | `GET` | `/api/rede/empresa/:cnpj` | Grafo de ligações (sócios, contatos, endereços e marcas) + empresas para o mapa |
+| `GET` | `/api/rede/hubs` | Hubs identificados automaticamente (e-mail, telefone, endereço, marca) |
+| `GET` | `/api/rede/hub` | Grafo de um hub: contato + empresas conectadas |
 | `GET` | `/api/historico/cobertura` | Matriz de cobertura histórica e relatório de validação 2019 |
 | `GET` | `/api/empresas` | Listagem com filtros, paginação e resumo |
 | `GET` | `/api/estatisticas` | Agregações por UF, CNAE, situação, porte, município ou natureza |
@@ -200,6 +203,12 @@ curl "http://localhost:3000/api/timeline?uf=SP"
 
 # Mapa de ligações de uma empresa
 curl "http://localhost:3000/api/rede/empresa/03444384"
+
+# Hubs identificados automaticamente
+curl "http://localhost:3000/api/rede/hubs?tipo=email&min_empresas=3"
+
+# Grafo de um hub (sem precisar saber o CNPJ)
+curl "http://localhost:3000/api/rede/hub?tipo=email&valor=contex%40tca.com.br"
 
 # Cobertura histórica e validação 2019
 curl "http://localhost:3000/api/historico/cobertura"

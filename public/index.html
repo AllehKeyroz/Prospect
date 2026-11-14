@@ -86,7 +86,7 @@
               <label class="check"><input type="checkbox" id="map-mei" name="mei" /> MEI</label>
             </div>
             <div class="actions">
-              <button type="submit" class="btn btn-primary">Aplicar</button>
+              <button type="submit" class="btn btn-primary">Atualizar</button>
               <button type="button" class="btn" id="map-clear">Limpar</button>
             </div>
           </form>
@@ -148,14 +148,65 @@
           <div id="network-suggestions" class="network-suggestions"></div>
         </section>
 
+        <section class="panel network-discovery-panel">
+          <div class="network-discovery-head">
+            <div>
+              <p class="eyebrow">Redes identificadas</p>
+              <h3>Contatos compartilhados</h3>
+              <p class="muted small">
+                A aplicação encontrou estes hubs sozinha. Selecione um para ver as empresas conectadas.
+              </p>
+            </div>
+            <div class="network-discovery-filters">
+              <div class="field">
+                <label for="hub-tipo">Tipo</label>
+                <select id="hub-tipo">
+                  <option value="email">E-mail</option>
+                  <option value="telefone">Telefone</option>
+                  <option value="endereco">Endereço</option>
+                  <option value="marca">Marca</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="hub-min">Mín. empresas</label>
+                <select id="hub-min">
+                  <option value="3">3</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="hub-uf">UF</label>
+                <select id="hub-uf" data-searchable="true" data-search-placeholder="Pesquisar UF">
+                  <option value="">Todas</option>
+                </select>
+              </div>
+              <div class="field field-wide">
+                <label for="hub-cnae">CNAE</label>
+                <select id="hub-cnae" data-searchable="true" data-search-placeholder="Código ou nome do CNAE">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+              <div class="field field-wide">
+                <label for="hub-q">Filtrar contato</label>
+                <input id="hub-q" type="search" placeholder="E-mail, telefone, endereço ou marca" />
+              </div>
+            </div>
+          </div>
+          <div id="hub-list" class="hub-list">
+            <p class="muted small">Carregando redes identificadas…</p>
+          </div>
+        </section>
+
         <div class="network-layout">
           <section class="panel network-graph-panel">
             <div class="network-graph-head">
               <div>
                 <p class="eyebrow">Mapa de ligações</p>
-                <h2 id="network-title">Busque uma empresa</h2>
+                <h2 id="network-title">Redes identificadas</h2>
                 <p id="network-subtitle" class="muted">
-                  Sócios, contatos, endereços e marcas compartilhados.
+                  Selecione um hub ou busque uma empresa para abrir a rede completa.
                 </p>
               </div>
               <button type="button" class="btn btn-small" id="network-recenter">Reorganizar</button>
@@ -177,7 +228,10 @@
             <section class="panel network-map-panel">
               <div class="panel-head">
                 <h3>Distribuição geográfica</h3>
-                <span id="network-map-count" class="muted small"></span>
+                <div class="network-map-tools">
+                  <span id="network-map-count" class="muted small">Selecione uma rede</span>
+                  <button type="button" class="btn btn-small" id="network-map-reset">Brasil</button>
+                </div>
               </div>
               <div id="network-map"></div>
               <div class="network-map-legend" id="network-map-legend"></div>
@@ -317,7 +371,7 @@
             <div class="results-head">
               <div>
                 <h2>Empresas</h2>
-                <p id="result-info">Informe os filtros e clique em buscar.</p>
+                <p id="result-info">Os filtros são aplicados automaticamente.</p>
               </div>
               <div class="results-tools">
                 <label for="sort">Ordenar por</label>
@@ -429,7 +483,7 @@
               <label class="check"><input type="checkbox" id="dash-mei" name="mei" /> MEI</label>
             </div>
             <div class="actions">
-              <button type="submit" class="btn btn-primary">Aplicar</button>
+              <button type="submit" class="btn btn-primary">Atualizar</button>
               <button type="button" class="btn" id="dash-clear">Limpar</button>
             </div>
           </form>
@@ -508,6 +562,7 @@
             <span id="coverage-validation-status" class="tag"></span>
           </div>
           <div id="coverage-validation" class="coverage-validation"></div>
+          <p id="coverage-validation-note" class="coverage-note"></p>
         </section>
 
         <section class="panel data-method-panel">

@@ -23,6 +23,7 @@ import {
 } from './geoQueries.js';
 import {
   buildCompanyGraph,
+  buildHubGraph,
 } from './networkGraph.js';
 import {
   DEFAULT_NETWORK_LIMITS,
@@ -33,12 +34,19 @@ import {
   getPartnerCompanies,
   getTargetPartners,
 } from './networkQueries.js';
+import {
+  getHubCompanies,
+  getHubSummary,
+  listHubs,
+} from './hubQueries.js';
 import { buildPassport } from './passport.js';
 import { coveragePayload } from '../history/coverage.js';
 import {
   cnpjParamsSchema,
   dashboardSchema,
   exportSchema,
+  hubDetailSchema,
+  hubListSchema,
   idParamsSchema,
   mapaSchema,
   mercadoSchema,
@@ -663,6 +671,93 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         snapshot: config.snapshot,
         observacao:
           'Rede construída a partir do snapshot atual. Contatos repetidos são hubs; não há pares empresa–empresa quando o contato é muito compartilhado.',
+      },
+    };
+  });
+
+  app.get('/api/rede/hubs', async (request, reply) => {
+    const parsed = hubListSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const rows = await listHubs({
+      tipo: parsed.data.tipo,
+      minEmpresas: parsed.data.min_empresas,
+      uf: parsed.data.uf,
+      cnae: parsed.data.cnae,
+      q: parsed.data.q,
+      limit: parsed.data.limit,
+      offset: parsed.data.offset,
+    });
+    return {
+      tipo: parsed.data.tipo,
+      data: rows.map((row) => ({
+        ...row,
+        rotulo: row.rotulo ?? row.valor,
+        empresas: asNumber(row.empresas),
+        ufs: asNumber(row.ufs),
+        cnaes: asNumber(row.cnaes),
+        ativas: asNumber(row.ativas),
+        capital_somado: asNullableNumber(row.capital_somado),
+        idade_media: asNullableNumber(row.idade_media),
+      })),
+    };
+  });
+
+  app.get('/api/rede/hub', async (request, reply) => {
+    const parsed = hubDetailSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const hub = await getHubSummary(parsed.data.tipo, parsed.data.valor);
+    if (!hub) {
+      return reply.status(404).send({ error: 'Hub não encontrado na base' });
+    }
+    const companies = await getHubCompanies(
+      parsed.data.tipo,
+      parsed.data.valor,
+      parsed.data.limit,
+    );
+    const graph = buildHubGraph({
+      tipo: hub.tipo,
+      valor: hub.valor,
+      rotulo: hub.rotulo,
+      total: hub.empresas,
+      companies,
+    });
+    return {
+      tipo_rede: 'hub',
+      hub,
+      centro: {
+        cnpj_base: null,
+        cnpj: null,
+        cnpj_formatado: '',
+        razao_social: hub.rotulo,
+      },
+      resumo: {
+        socios: 0,
+        empresas_via_socios: 0,
+        contatos: 1,
+        empresas_via_contatos: hub.empresas,
+        hubs: 1,
+        empresas_no_grafo: graph.empresas.length,
+        socios_no_grafo: 0,
+        contatos_no_grafo: 1,
+      },
+      nodes: graph.nodes,
+      edges: graph.edges,
+      empresas: graph.empresas,
+      limites: { empresas_por_hub: parsed.data.limit },
+      cobertura: {
+        snapshot: config.snapshot,
+        observacao:
+          'Hub inferido por contato compartilhado. Clique em uma empresa para abrir a rede completa dela.',
       },
     };
   });

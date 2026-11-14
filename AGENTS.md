@@ -39,7 +39,10 @@ npm run dev                 # http://localhost:3000
 - DuckDB `getRowObjectsJson()` returns decimals/bigints as strings. Routes normalize with `asNumber`/`asNullableNumber`; preserve that boundary when adding endpoints.
 - `buildTimelineQuery` intentionally drops `situacao` and `idade` filters so closed companies still appear in births/deaths. Don't "fix" this without a product decision.
 - `buildCompanyGraph` is a pure builder: network SQL returns flat rows, then nodes/edges are deduplicated there. Repeated contacts become hub nodes; never expand a hub into pairwise company edges.
+- `hubQueries.ts` powers automatic network discovery (`/api/rede/hubs`, `/api/rede/hub`): it finds repeated emails/phones/addresses/brands and opens a hub graph without requiring the user to know a CNPJ.
 - The passport is assembled in `src/api/passport.ts` from the detail rows; dates and events are facts from the current snapshot, not a historical time machine.
+- Filters in Busca, Mapa, Dashboard and Rede are auto-applied on change (debounced where needed). Do not reintroduce a state where the visible data depends on pressing "Aplicar".
+- The network map must load `public/geo/estados.geojson` as a visible Brazil layer; a blank ocean with a dot is a regression.
 - The API opens the analytics DB read-only with 4 connections; ingest opens it read-write with 1. They cannot safely share the same file at the same time.
 - Saved searches use a separate `data/app.duckdb`, created automatically at startup; it is not part of ingest.
 - `public/geo/municipios_ibge.csv` is required by the loader at `path.resolve('public/geo/...')`. Regenerate committed geo assets with `npm run geo:build`; run commands from the repo root.
@@ -62,4 +65,6 @@ npm run dev                 # http://localhost:3000
 - Keep the `snapshot` column and `meta` table in sync; `/health` reads `meta`.
 - README documents deploy/EasyPanel and data flow. When README and scripts/config disagree, trust the executable source.
 - UI has five views: `Mapa`, `Busca`, `Rede`, `Dashboard`, `Dados`. Hash routing supports `#busca`, `#dashboard`, `#dados`, and `#rede=<cnpj>`.
+- `Rede` opens with automatically identified hubs, not an empty CNPJ prompt. Typing a company name shows live suggestions; selecting one replaces the input with the formatted CNPJ.
+- Labels must distinguish the local sample (`50.000 estabelecimentos`) from the 2019 archive (`1.902.007 empresas` in file 01). They are different universes and must never be presented as the same total.
 - Historical coverage is deliberately layered (`oficial`, `validado`, `reconstruido`, `sem_fonte`); never present reconstructed 2000–2018 as an official market snapshot.

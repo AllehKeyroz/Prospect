@@ -823,6 +823,44 @@ tbody tr:last-child td { border-bottom: none; }
 .network-suggestion strong { font-size: 12px; }
 .network-suggestion span { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
 
+.network-discovery-panel { padding: 16px; margin-top: 14px; }
+.network-discovery-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.network-discovery-head h3 { margin: 0 0 2px; font-size: 16px; letter-spacing: -0.02em; }
+.network-discovery-head p { margin: 0; }
+.network-discovery-filters {
+  display: grid;
+  grid-template-columns: 110px 110px 90px minmax(180px, 260px) minmax(180px, 260px);
+  gap: 8px;
+  align-items: end;
+  flex: none;
+}
+.network-discovery-filters .field { margin: 0; }
+.network-discovery-filters .field label { font-size: 9px; }
+.network-discovery-filters .field input,
+.network-discovery-filters .field select { padding: 6px 8px; font-size: 11px; }
+.hub-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 250px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.hub-card {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  background: #fbfcfd;
+  cursor: pointer;
+  min-width: 0;
+}
+.hub-card:hover { border-color: var(--brand); background: #f3fafa; }
+.hub-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.hub-card strong { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-card .hub-count { color: var(--brand); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.hub-card p { margin: 4px 0 0; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-card .hub-type { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+
 .network-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
@@ -876,7 +914,8 @@ tbody tr:last-child td { border-bottom: none; }
 
 .network-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .network-map-panel, .network-summary-panel, .network-companies-panel { padding: 14px; }
-#network-map { width: 100%; height: 250px; border-radius: 9px; overflow: hidden; background: #eaf0f3; }
+.network-map-tools { display: flex; align-items: center; gap: 6px; }
+#network-map { width: 100%; height: 250px; border-radius: 9px; overflow: hidden; background: #dbe8ec; }
 .network-map-legend { display: flex; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 10.5px; }
 .network-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .network-summary .map-kpi strong { font-size: 15px; }
@@ -962,6 +1001,7 @@ tbody tr:last-child td { border-bottom: none; }
 .coverage-sem_fonte { background: #f6e4e4; color: #913b3b; }
 .coverage-validation { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .coverage-validation .map-kpi strong { font-size: 15px; }
+.coverage-note { margin: 10px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
 .data-method-panel { padding: 18px 20px; margin-top: 14px; }
 .data-method-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .data-method-grid strong { display: block; font-size: 12px; color: var(--brand); }
@@ -985,6 +1025,10 @@ tbody tr:last-child td { border-bottom: none; }
   .map-panel { position: static; }
   .map-side { max-height: none; min-height: 0; }
   #map { height: 60vh; min-height: 500px; }
+  .network-discovery-head { flex-direction: column; }
+  .network-discovery-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+  .network-discovery-filters .field-wide { grid-column: span 2; }
+  .hub-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .network-layout { grid-template-columns: 1fr; }
   .network-graph { height: 560px; }
   .coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1022,6 +1066,9 @@ tbody tr:last-child td { border-bottom: none; }
   .network-search-form { flex-direction: column; align-items: stretch; }
   .network-graph { height: 460px; }
   .network-graph-head { flex-direction: column; }
+  .network-discovery-filters { grid-template-columns: 1fr 1fr; }
+  .network-discovery-filters .field-wide { grid-column: span 2; }
+  .hub-list { grid-template-columns: 1fr; }
   .coverage-grid, .coverage-validation, .data-method-grid, .passport-facts { grid-template-columns: 1fr; }
 }
 

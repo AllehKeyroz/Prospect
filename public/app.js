@@ -16,7 +16,17 @@ const state = {
   options: null,
   meta: null,
   loading: false,
+  pendingSearch: false,
   dashboardLoading: false,
+  pendingDashboard: false,
+  hubLoading: false,
+  hubPending: false,
+  hubToken: 0,
+  hubs: [],
+  searchTimer: null,
+  mapTimer: null,
+  dashboardTimer: null,
+  hubTimer: null,
   view: 'mapa',
   map: null,
   mapReady: false,
@@ -38,6 +48,7 @@ const state = {
   mapLoading: false,
   network: null,
   networkLoading: false,
+  networkSuggestionTimer: null,
   networkFilters: new Set([
     'socio_de',
     'mesmo_email',
@@ -112,6 +123,11 @@ function fmtPhone(ddd, phone) {
 
 function firstPhone(row) {
   return fmtPhone(row.ddd1, row.telefone1) || fmtPhone(row.ddd2, row.telefone2);
+}
+
+function debounce(key, callback, delay = 300) {
+  clearTimeout(state[key]);
+  state[key] = setTimeout(callback, delay);
 }
 
 function situacaoChip(codigo, descricao) {
@@ -451,9 +467,13 @@ function setView(view, updateHash = true) {
       if (!state.mapFitted) fitMapToBrazil();
     }, 80);
   }
+  if (view === 'search' && !state.loading && !resultsBody.querySelector('tr[data-cnpj]')) {
+    void search({ resetPage: true });
+  }
   if (view === 'rede') {
     void ensureNetworkMap();
     setTimeout(() => state.networkMap?.resize(), 80);
+    if (state.hubs.length === 0) void loadHubs();
   }
   if (view === 'dashboard') void loadDashboard();
   if (view === 'dados') void loadCoverage();
@@ -467,7 +487,7 @@ async function loadOptions() {
   const options = await fetchJson('/api/opcoes');
   state.options = options;
 
-  for (const selectId of ['uf', 'dash-uf']) {
+  for (const selectId of ['uf', 'dash-uf', 'hub-uf']) {
     const select = $(selectId);
     for (const value of options.ufs ?? []) {
       const option = document.createElement('option');
@@ -477,7 +497,7 @@ async function loadOptions() {
     }
   }
 
-  for (const selectId of ['cnae', 'dash-cnae', 'map-cnae']) {
+  for (const selectId of ['cnae', 'dash-cnae', 'map-cnae', 'hub-cnae']) {
     const select = $(selectId);
     for (const item of options.cnaes ?? []) {
       const option = document.createElement('option');
@@ -492,7 +512,8 @@ async function loadMeta() {
   const meta = await fetchJson('/api/meta');
   state.meta = meta;
   $('snapshot-badge').textContent = `Snapshot ${meta.snapshot ?? '—'}`;
-  $('rows-badge').textContent = `${fmtNumber(meta.estabelecimentos)} estabelecimentos`;
+  $('rows-badge').textContent = `${fmtNumber(meta.estabelecimentos)} estabelecimentos na amostra`;
+  $('rows-badge').title = 'Amostra local; não representa o Brasil inteiro';
   $('note-snapshot').textContent = meta.snapshot ?? '2026-10';
 }
 
@@ -1311,7 +1332,10 @@ async function loadStats(type) {
 }
 
 async function search({ resetPage = true } = {}) {
-  if (state.loading) return;
+  if (state.loading) {
+    state.pendingSearch = true;
+    return;
+  }
   if (resetPage) state.page = 1;
   state.loading = true;
 
@@ -1351,6 +1375,10 @@ async function search({ resetPage = true } = {}) {
     $('result-info').textContent = 'Erro ao consultar a base.';
   } finally {
     state.loading = false;
+    if (state.pendingSearch) {
+      state.pendingSearch = false;
+      void search({ resetPage: false });
+    }
   }
 }
 
@@ -1471,7 +1499,7 @@ function ensureNetworkMap() {
         version: 8,
         sources: {},
         layers: [
-          { id: 'background', type: 'background', paint: { 'background-color': '#eaf0f3' } },
+          { id: 'background', type: 'background', paint: { 'background-color': '#dbe8ec' } },
         ],
       },
       bounds: [
@@ -1488,7 +1516,32 @@ function ensureNetworkMap() {
     state.networkMap = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.on('error', (event) => console.error('network map error', event.error));
-    map.on('load', () => {
+    map.on('load', async () => {
+      try {
+        const estados = await fetchJson('/geo/estados.geojson');
+        map.addSource('network-estados', { type: 'geojson', data: estados });
+        map.addLayer({
+          id: 'network-estados-fill',
+          type: 'fill',
+          source: 'network-estados',
+          paint: { 'fill-color': '#f7fbfb', 'fill-opacity': 1 },
+        });
+        map.addLayer({
+          id: 'network-estados-line',
+          type: 'line',
+          source: 'network-estados',
+          paint: { 'line-color': '#b8ced3', 'line-width': 1, 'line-opacity': 1 },
+        });
+      } catch (error) {
+        console.error('network map states error', error);
+      }
+      map.fitBounds(
+        [
+          [-74, -34],
+          [-34, 6],
+        ],
+        { padding: 24, animate: false },
+      );
       map.addSource('network-companies', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -1568,13 +1621,16 @@ async function updateNetworkMap(data) {
     data.empresas?.length ?? 0,
   )} com localização`;
 
-  if (features.length === 1) {
-    state.networkMap.easeTo({ center: features[0].geometry.coordinates, zoom: 7, duration: 0 });
-    state.networkMapFitted = true;
-  } else if (features.length > 1) {
-    const bounds = new maplibregl.LngLatBounds();
-    for (const feature of features) bounds.extend(feature.geometry.coordinates);
-    state.networkMap.fitBounds(bounds, { padding: 38, maxZoom: 8, duration: 0 });
+  if (features.length > 0) {
+    // A visão padrão é o Brasil inteiro; o usuário pode aproximar com os
+    // controles do mapa. Isso evita que uma rede local esconda o território.
+    state.networkMap.fitBounds(
+      [
+        [-74, -34],
+        [-34, 6],
+      ],
+      { padding: 24, animate: false },
+    );
     state.networkMapFitted = true;
   }
 }
@@ -1724,21 +1780,31 @@ function renderNetworkGraph(data) {
 
 function renderNetworkSummary(data) {
   const resumo = data.resumo ?? {};
-  const kpis = [
-    ['Sócios', resumo.socios],
-    ['Empresas via sócios', resumo.empresas_via_socios],
-    ['Contatos', resumo.contatos],
-    ['Empresas via contatos', resumo.empresas_via_contatos],
-    ['Hubs', resumo.hubs],
-    ['Empresas no grafo', resumo.empresas_no_grafo],
-  ];
+  const isHub = data.tipo_rede === 'hub';
+  const kpis = isHub
+    ? [
+        ['Empresas', data.hub?.empresas],
+        ['Ativas', data.hub?.ativas],
+        ['UFs', data.hub?.ufs],
+        ['CNAEs', data.hub?.cnaes],
+        ['Capital somado', fmtMoney(data.hub?.capital_somado)],
+        ['Idade média', data.hub?.idade_media != null ? `${Number(data.hub.idade_media).toFixed(1)} anos` : '—'],
+      ]
+    : [
+        ['Sócios', resumo.socios],
+        ['Empresas via sócios', resumo.empresas_via_socios],
+        ['Contatos', resumo.contatos],
+        ['Empresas via contatos', resumo.empresas_via_contatos],
+        ['Hubs', resumo.hubs],
+        ['Empresas no grafo', resumo.empresas_no_grafo],
+      ];
   $('network-summary').innerHTML = `
     <div class="network-summary">
       ${kpis
         .map(
           ([label, value]) =>
-            `<div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${fmtNumber(
-              value,
+            `<div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(
+              typeof value === 'string' ? value : fmtNumber(value),
             )}</strong></div>`,
         )
         .join('')}
@@ -1785,10 +1851,15 @@ function renderNetwork(data) {
   state.network = data;
   state.networkMapFitted = false;
   const centro = data.centro ?? {};
+  const isHub = data.tipo_rede === 'hub';
   $('network-title').textContent = centro.razao_social || 'Rede da empresa';
-  $('network-subtitle').textContent = `${centro.cnpj_formatado || centro.cnpj_base || ''} · ${
-    data.resumo?.empresas_no_grafo ?? 0
-  } empresa(s) no grafo`;
+  $('network-subtitle').textContent = isHub
+    ? `${fmtNumber(data.hub?.empresas)} empresas · ${fmtNumber(data.hub?.ufs)} UF(s) · ${fmtNumber(
+        data.hub?.cnaes,
+      )} CNAE(s) · ${fmtNumber(data.hub?.ativas)} ativas`
+    : `${centro.cnpj_formatado || centro.cnpj_base || ''} · ${
+        data.resumo?.empresas_no_grafo ?? 0
+      } empresa(s) no grafo`;
   $('network-legend').innerHTML = `
     ${Object.entries(NETWORK_NODE_COLOR)
       .map(
@@ -1841,10 +1912,138 @@ async function searchNetwork() {
     await loadNetworkByCnpj(digits);
     return;
   }
+  await loadNetworkSuggestions(query);
+}
+
+function clearNetwork() {
+  state.network = null;
+  $('network-q').value = '';
+  $('network-suggestions').innerHTML = '';
+  $('network-title').textContent = 'Redes identificadas';
+  $('network-subtitle').textContent =
+    'Selecione um hub abaixo ou busque uma empresa para abrir a rede completa.';
+  $('network-graph').innerHTML =
+    '<p class="graph-empty muted">A rede aparece aqui depois da busca ou da seleção de um hub.</p>';
+  $('network-summary').innerHTML = '';
+  $('network-companies').innerHTML = '';
+  $('network-map-count').textContent = 'Selecione uma rede';
+  const url = new URL(window.location.href);
+  url.hash = 'rede';
+  window.history.replaceState(null, '', url);
+}
+
+const HUB_TYPE_LABEL = {
+  email: 'E-mail',
+  telefone: 'Telefone',
+  endereco: 'Endereço',
+  marca: 'Marca',
+};
+
+function hubFilterParams() {
+  const params = new URLSearchParams();
+  params.set('tipo', $('hub-tipo').value);
+  params.set('min_empresas', $('hub-min').value);
+  params.set('limit', '24');
+  const uf = $('hub-uf').value;
+  if (uf) params.set('uf', uf);
+  const cnae = $('hub-cnae').value;
+  if (cnae) params.set('cnae', cnae);
+  const q = $('hub-q').value.trim();
+  if (q) params.set('q', q);
+  return params;
+}
+
+async function loadHubs() {
+  if (!$('hub-list')) return;
+  if (state.hubLoading) {
+    state.hubPending = true;
+    return;
+  }
+  state.hubLoading = true;
+  const token = ++state.hubToken;
+  $('hub-list').innerHTML = '<p class="muted small">Atualizando redes identificadas…</p>';
+  try {
+    const payload = await fetchJson(`/api/rede/hubs?${hubFilterParams().toString()}`);
+    if (token !== state.hubToken) return;
+    state.hubs = payload.data ?? [];
+    renderHubs(state.hubs);
+  } catch (error) {
+    console.error(error);
+    if (token === state.hubToken) {
+      $('hub-list').innerHTML = `<p class="muted small">Não foi possível carregar as redes: ${escapeHtml(
+        error.message,
+      )}</p>`;
+    }
+  } finally {
+    state.hubLoading = false;
+    if (state.hubPending) {
+      state.hubPending = false;
+      void loadHubs();
+    }
+  }
+}
+
+function renderHubs(hubs) {
+  const container = $('hub-list');
+  if (!hubs.length) {
+    container.innerHTML =
+      '<p class="muted small">Nenhum hub com esses filtros. Reduza o mínimo de empresas ou limpe a UF/CNAE.</p>';
+    return;
+  }
+  container.innerHTML = hubs
+    .map((hub) => {
+      const tipo = HUB_TYPE_LABEL[hub.tipo] ?? hub.tipo;
+      const exemplo = [hub.exemplo_razao_social, hub.exemplo_uf].filter(Boolean).join(' · ');
+      return `<article class="hub-card" data-tipo="${escapeHtml(hub.tipo)}" data-valor="${escapeHtml(
+        hub.valor,
+      )}" data-rotulo="${escapeHtml(hub.rotulo)}">
+        <header>
+          <strong title="${escapeHtml(hub.rotulo)}">${escapeHtml(hub.rotulo)}</strong>
+          <span class="hub-count">${fmtNumber(hub.empresas)} empresas</span>
+        </header>
+        <div class="hub-type">${escapeHtml(tipo)} · ${fmtNumber(hub.ufs)} UF(s) · ${fmtNumber(
+          hub.cnaes,
+        )} CNAE(s)</div>
+        <p>${fmtNumber(hub.ativas)} ativas · ${fmtMoney(hub.capital_somado)} capital somado</p>
+        <p title="${escapeHtml(exemplo)}">${escapeHtml(exemplo || 'Sem empresa de exemplo')}</p>
+      </article>`;
+    })
+    .join('');
+}
+
+async function loadHub(tipo, valor) {
+  if (state.networkLoading) return;
+  state.networkLoading = true;
+  $('network-title').textContent = 'Carregando rede…';
+  $('network-subtitle').textContent = 'Consultando as empresas ligadas a este hub.';
+  $('network-graph').innerHTML = '<p class="graph-empty muted">Calculando ligações…</p>';
+  try {
+    const params = new URLSearchParams({ tipo, valor, limit: '80' });
+    const data = await fetchJson(`/api/rede/hub?${params.toString()}`);
+    renderNetwork(data);
+    const url = new URL(window.location.href);
+    url.hash = 'rede';
+    window.history.replaceState(null, '', url);
+  } catch (error) {
+    console.error(error);
+    $('network-title').textContent = 'Rede não encontrada';
+    $('network-graph').innerHTML = `<p class="graph-empty muted">${escapeHtml(error.message)}</p>`;
+    showToast(error.message, 'error');
+  } finally {
+    state.networkLoading = false;
+  }
+}
+
+async function loadNetworkSuggestions(query) {
+  const text = String(query ?? '').trim();
+  if (text.length < 2) {
+    $('network-suggestions').innerHTML = '';
+    return;
+  }
   $('network-suggestions').innerHTML = '<p class="muted small">Buscando empresas…</p>';
   try {
     const params = new URLSearchParams({
-      q: query,
+      q: text,
       page_size: '8',
       sort: 'razao_social',
       order: 'asc',
@@ -1853,7 +2052,7 @@ async function searchNetwork() {
     const rows = payload.data ?? [];
     if (!rows.length) {
       $('network-suggestions').innerHTML =
-        '<p class="muted small">Nenhuma empresa encontrada. Tente o CNPJ.</p>';
+        '<p class="muted small">Nenhuma empresa encontrada. Tente outro nome ou o CNPJ.</p>';
       return;
     }
     $('network-suggestions').innerHTML = rows
@@ -1870,22 +2069,6 @@ async function searchNetwork() {
     console.error(error);
     $('network-suggestions').innerHTML = `<p class="muted small">${escapeHtml(error.message)}</p>`;
   }
-}
-
-function clearNetwork() {
-  state.network = null;
-  $('network-q').value = '';
-  $('network-suggestions').innerHTML = '';
-  $('network-title').textContent = 'Busque uma empresa';
-  $('network-subtitle').textContent = 'Sócios, contatos, endereços e marcas compartilhados.';
-  $('network-graph').innerHTML =
-    '<p class="graph-empty muted">A rede aparece aqui depois da busca.</p>';
-  $('network-summary').innerHTML = '';
-  $('network-companies').innerHTML = '';
-  $('network-map-count').textContent = '';
-  const url = new URL(window.location.href);
-  url.hash = 'rede';
-  window.history.replaceState(null, '', url);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1942,7 +2125,7 @@ async function loadCoverage() {
       ['CNAE', `${agreement.pct_cnae ?? 0}%`],
       ['UF', `${agreement.pct_uf ?? 0}%`],
       ['Arquivos', files.length],
-      ['Empresas no arquivo', files.reduce((sum, item) => sum + Number(item.total_companies ?? 0), 0)],
+      ['Empresas no arquivo 2019', files.reduce((sum, item) => sum + Number(item.total_companies ?? 0), 0)],
     ];
     $('coverage-validation').innerHTML = kpis
       .map(
@@ -1952,6 +2135,15 @@ async function loadCoverage() {
           )}</strong></div>`,
       )
       .join('');
+    const archiveCompanies = files.reduce(
+      (sum, item) => sum + Number(item.total_companies ?? 0),
+      0,
+    );
+    $('coverage-validation-note').textContent = `Os ${fmtNumber(
+      archiveCompanies,
+    )} são empresas do arquivo 2019 do Wayback (${files.length} arquivo(s) baixado(s)). A base local tem ${fmtNumber(
+      state.meta?.estabelecimentos,
+    )} estabelecimentos na amostra; são recortes diferentes.`;
   } catch (error) {
     console.error(error);
     container.innerHTML = `<p class="muted">Não foi possível carregar a cobertura: ${escapeHtml(
@@ -2405,7 +2597,10 @@ function renderDashboard(data, timeline = []) {
 }
 
 async function loadDashboard() {
-  if (state.dashboardLoading) return;
+  if (state.dashboardLoading) {
+    state.pendingDashboard = true;
+    return;
+  }
   state.dashboardLoading = true;
   const params = buildDashboardParams();
 
@@ -2449,6 +2644,10 @@ async function loadDashboard() {
     }
   } finally {
     state.dashboardLoading = false;
+    if (state.pendingDashboard) {
+      state.pendingDashboard = false;
+      void loadDashboard();
+    }
   }
 }
 
@@ -2592,6 +2791,22 @@ function wireEvents() {
     search();
   });
 
+  form.addEventListener('change', async (event) => {
+    const target = event.target;
+    if (!target?.id) return;
+    if (target.id === 'uf') {
+      await loadCities($('uf'), $('municipio'));
+      void search({ resetPage: true });
+      return;
+    }
+    if (target.id === 'q') return;
+    void search({ resetPage: true });
+  });
+
+  $('q').addEventListener('input', () => {
+    debounce('searchTimer', () => void search({ resetPage: true }), 400);
+  });
+
   $('clear').addEventListener('click', async () => {
     form.reset();
     $('situacao').value = '02';
@@ -2633,6 +2848,17 @@ function wireEvents() {
     void loadDashboard();
   });
 
+  dashboardForm.addEventListener('change', async (event) => {
+    const target = event.target;
+    if (!target?.id) return;
+    if (target.id === 'dash-uf') {
+      await loadCities($('dash-uf'), $('dash-municipio'));
+      void loadDashboard();
+      return;
+    }
+    debounce('dashboardTimer', () => void loadDashboard(), 250);
+  });
+
   $('dash-clear').addEventListener('click', async () => {
     dashboardForm.reset();
     $('dash-idade').value = '0';
@@ -2646,6 +2872,18 @@ function wireEvents() {
     clearMapSelection();
     await loadMapMetrics(state.mapLevel);
     resetTerritoryPreview();
+  });
+
+  $('map-filters').addEventListener('change', (event) => {
+    if (event.target?.id === 'map-metric') return;
+    debounce(
+      'mapTimer',
+      () => {
+        clearMapSelection();
+        void loadMapMetrics(state.mapLevel).then(() => resetTerritoryPreview());
+      },
+      250,
+    );
   });
 
   $('map-clear').addEventListener('click', async () => {
@@ -2694,10 +2932,40 @@ function wireEvents() {
     void searchNetwork();
   });
 
+  $('network-q').addEventListener('input', () => {
+    const query = $('network-q').value.trim();
+    if (query.length < 2) {
+      $('network-suggestions').innerHTML = '';
+      return;
+    }
+    debounce('networkSuggestionTimer', () => void loadNetworkSuggestions(query), 350);
+  });
+
   $('network-clear').addEventListener('click', clearNetwork);
 
   $('network-recenter').addEventListener('click', () => {
     if (state.network) renderNetworkGraph(state.network);
+  });
+
+  $('network-map-reset').addEventListener('click', () => {
+    if (!state.networkMap) return;
+    state.networkMap.fitBounds(
+      [
+        [-74, -34],
+        [-34, 6],
+      ],
+      { padding: 24, animate: false },
+    );
+  });
+
+  for (const id of ['hub-tipo', 'hub-min', 'hub-uf', 'hub-cnae']) {
+    $(id).addEventListener('change', () => debounce('hubTimer', () => void loadHubs(), 250));
+  }
+  $('hub-q').addEventListener('input', () => debounce('hubTimer', () => void loadHubs(), 400));
+
+  $('hub-list').addEventListener('click', (event) => {
+    const card = event.target.closest('.hub-card[data-tipo][data-valor]');
+    if (card) void loadHub(card.dataset.tipo, card.dataset.valor);
   });
 
   $('network-suggestions').addEventListener('click', (event) => {

@@ -149,6 +149,25 @@ export const networkQuerySchema = z.object({
   hub_min: z.coerce.number().int().min(2).max(1000).default(5),
 });
 
+export const hubListSchema = z.object({
+  tipo: z.enum(['email', 'telefone', 'endereco', 'marca']).default('email'),
+  min_empresas: z.coerce.number().int().min(2).max(1000).default(3),
+  uf: z.preprocess(
+    (value) => (value === '' || value === undefined ? undefined : String(value).toUpperCase()),
+    z.string().length(2).optional(),
+  ),
+  cnae: optionalCnae,
+  q: optionalText(120),
+  limit: z.coerce.number().int().min(1).max(60).default(24),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const hubDetailSchema = z.object({
+  tipo: z.enum(['email', 'telefone', 'endereco', 'marca']),
+  valor: z.string().trim().min(1).max(500),
+  limit: z.coerce.number().int().min(1).max(200).default(80),
+});
+
 export const savedSearchSchema = z.object({
   name: z.string().trim().min(1).max(120),
   filters: z.record(z.string(), z.string()),
@@ -166,3 +185,5 @@ export type MapaInput = z.infer<typeof mapaSchema>;
 export type MercadoInput = z.infer<typeof mercadoSchema>;
 export type TimelineInput = z.infer<typeof timelineSchema>;
 export type NetworkQueryInput = z.infer<typeof networkQuerySchema>;
+export type HubListInput = z.infer<typeof hubListSchema>;
+export type HubDetailInput = z.infer<typeof hubDetailSchema>;

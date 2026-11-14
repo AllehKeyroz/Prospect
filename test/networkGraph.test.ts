@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCompanyGraph } from '../src/api/networkGraph.js';
+import { buildCompanyGraph, buildHubGraph } from '../src/api/networkGraph.js';
 import type {
   ContactCompanyRow,
   ContactRow,
@@ -94,6 +94,24 @@ describe('buildCompanyGraph', () => {
     expect(graph.edges.some((edge) => edge.tipo === 'socio_de')).toBe(true);
     expect(graph.edges.some((edge) => edge.tipo === 'mesmo_email')).toBe(true);
     expect(graph.empresas).toHaveLength(3);
+  });
+
+  it('monta grafo de hub sem partir de um CNPJ', () => {
+    const graph = buildHubGraph({
+      tipo: 'email',
+      valor: email.valor,
+      rotulo: email.rotulo ?? email.valor,
+      total: 5,
+      companies: [
+        { ...target, cnpj_base: '11111111' },
+        { ...target, cnpj_base: '22222222', razao_social: 'OUTRA EMPRESA LTDA' },
+      ],
+    });
+
+    expect(graph.nodes[0].hub).toBe(true);
+    expect(graph.nodes[0].central).toBe(true);
+    expect(graph.edges.every((edge) => edge.tipo === 'mesmo_email')).toBe(true);
+    expect(graph.empresas).toHaveLength(2);
   });
 
   it('deduplica empresas que aparecem por mais de uma relação', () => {
