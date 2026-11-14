@@ -907,7 +907,7 @@ tbody tr:last-child td { border-bottom: none; }
 .network-graph .graph-edge { stroke-opacity: 0.55; }
 .network-graph .graph-edge.media { stroke-dasharray: 4 4; }
 .network-graph .graph-node { cursor: pointer; }
-.network-graph .graph-node text { pointer-events: none; font-family: inherit; }
+.network-graph .graph-node text { pointer-events: auto; cursor: pointer; font-family: inherit; }
 .network-graph .graph-label { fill: var(--ink); font-size: 10.5px; font-weight: 700; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
 .network-graph .graph-label.sub { fill: var(--muted); font-size: 9px; font-weight: 500; }
 .network-graph .graph-empty { padding: 40px 20px; text-align: center; }
