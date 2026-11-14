@@ -384,7 +384,7 @@ export function buildHubGraph(input: {
     const destinationId = companyNodeId(row.cnpj_base);
     if (destinationId === originId) continue;
     if (!nodes.has(destinationId)) {
-      nodes.set(destinationId, toCompanyNode(row, 'socio', 2));
+      nodes.set(destinationId, toCompanyNode(row, 'socio', 3));
     }
     addSocioEdge(destinationId);
   }

@@ -58,6 +58,11 @@ const state = {
   ]),
   networkMap: null,
   networkMapReady: false,
+  networkGraphLayout: null,
+  networkGraphView: { x: 0, y: 0, k: 1 },
+  networkGraphPan: null,
+  networkGraphDrag: null,
+  networkGraphMoved: false,
   networkCentroids: { municipio: new Map(), uf: new Map() },
   networkCentroidsPromise: null,
   networkMapFitted: false,
@@ -1425,6 +1430,7 @@ function networkNodeLabel() {
 function networkNodeColor(node) {
   if (node.central) return '#e8a33d';
   if (node.ring === 2) return '#7c5cbf';
+  if (node.ring === 3) return '#b06ab3';
   return NETWORK_NODE_COLOR[node.tipo] ?? '#7b8b92';
 }
 
@@ -1641,6 +1647,210 @@ async function updateNetworkMap(data) {
   }
 }
 
+function buildRadialLayout(nodes, edges, width, height) {
+  const center = nodes.find((node) => node.central) ?? nodes.find((node) => node.ring === 0) ?? nodes[0];
+  const positions = new Map();
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const ringOf = (node) => (node.central ? 0 : node.ring ?? 1);
+  const rings = new Map();
+  for (const node of nodes) {
+    const ring = ringOf(node);
+    if (!rings.has(ring)) rings.set(ring, []);
+    rings.get(ring).push(node);
+  }
+
+  const centerPoint = { x: width / 2, y: height / 2, angle: -Math.PI / 2, ring: 0 };
+  if (center) positions.set(center.id, centerPoint);
+  const ring1 = (rings.get(1) ?? []).sort((a, b) => String(a.rotulo).localeCompare(String(b.rotulo)));
+  const ring2 = (rings.get(2) ?? []).sort((a, b) => String(a.rotulo).localeCompare(String(b.rotulo)));
+  const ring3 = (rings.get(3) ?? []).sort((a, b) => String(a.rotulo).localeCompare(String(b.rotulo)));
+
+  const base = Math.min(width, height);
+  let r1 = Math.max(145, Math.min(base * 0.24, 210), (ring1.length * 40) / (Math.PI * 2));
+  let r2 = r1 + Math.max(100, base * 0.12);
+  let r3 = r2 + Math.max(90, base * 0.11);
+  const maxRadius = base / 2 - 82;
+  const radiusScale = r3 > maxRadius ? Math.max(0.55, maxRadius / r3) : 1;
+  r1 *= radiusScale;
+  r2 *= radiusScale;
+  r3 *= radiusScale;
+
+  ring1.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, ring1.length)) * Math.PI * 2;
+    positions.set(node.id, {
+      x: centerPoint.x + Math.cos(angle) * r1,
+      y: centerPoint.y + Math.sin(angle) * r1,
+      angle,
+      ring: 1,
+    });
+  });
+
+  const neighborsAtRing = (node, ring) =>
+    edges
+      .filter((edge) => edge.origem === node.id || edge.destino === node.id)
+      .map((edge) => nodeById.get(edge.origem === node.id ? edge.destino : edge.origem))
+      .filter((candidate) => candidate && ringOf(candidate) === ring);
+
+  const meanAngle = (angles) => {
+    if (!angles.length) return null;
+    let sin = 0;
+    let cos = 0;
+    for (const angle of angles) {
+      sin += Math.sin(angle);
+      cos += Math.cos(angle);
+    }
+    return Math.atan2(sin, cos);
+  };
+
+  const placeRing = (ringNodes, baseRadius, neighborsRing, preferredRadius) => {
+    const placed = [];
+    for (const node of ringNodes) {
+      const neighborPoints = neighborsAtRing(node, neighborsRing)
+        .map((neighbor) => positions.get(neighbor.id))
+        .filter(Boolean);
+      const angles = neighborPoints.map((point) => point.angle);
+      const angle = meanAngle(angles);
+      placed.push({ node, angle: angle ?? 0 });
+    }
+    placed.sort((a, b) => a.angle - b.angle);
+    const minStep = (Math.PI * 2) / Math.max(1, placed.length) * 0.62;
+    for (let index = 1; index < placed.length; index++) {
+      if (placed[index].angle - placed[index - 1].angle < minStep) {
+        placed[index].angle = placed[index - 1].angle + minStep;
+      }
+    }
+    for (const { node, angle } of placed) {
+      const radius = preferredRadius ?? baseRadius;
+      positions.set(node.id, {
+        x: centerPoint.x + Math.cos(angle) * radius,
+        y: centerPoint.y + Math.sin(angle) * radius,
+        angle,
+        ring: node.ring ?? 2,
+      });
+    }
+  };
+
+  placeRing(ring2, r2, 1);
+  placeRing(ring3, r3, 2);
+
+  return {
+    centerId: center?.id ?? null,
+    center: centerPoint,
+    positions,
+    width,
+    height,
+    ring1Count: ring1.length,
+    ring2Count: ring2.length,
+    ring3Count: ring3.length,
+  };
+}
+
+function graphEdgePath(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const bend = Math.min(18, Math.max(4, distance * 0.035));
+  const cx = (a.x + b.x) / 2 - (dy / distance) * bend;
+  const cy = (a.y + b.y) / 2 + (dx / distance) * bend;
+  return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(
+    1,
+  )} ${b.y.toFixed(1)}`;
+}
+
+function graphLabelPoint(node, point, layout, radius = networkNodeRadius(node)) {
+  const isCenter = node.id === layout.centerId;
+  if (isCenter) {
+    return {
+      x: point.x,
+      y: point.y - radius - 10,
+      anchor: 'middle',
+      subY: point.y + radius + 14,
+      subAnchor: 'middle',
+    };
+  }
+
+  const text = String(node.rotulo ?? '');
+  const estimatedWidth = Math.min(300, Math.max(90, text.length * 7));
+  const angle = point.angle ?? Math.atan2(point.y - layout.center.y, point.x - layout.center.x);
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const vertical = Math.abs(cosine) < 0.38;
+
+  let anchor;
+  let x;
+  let y;
+  if (vertical) {
+    anchor = 'middle';
+    x = point.x;
+    y = point.y + (sine < 0 ? -radius - 12 : radius + 16);
+  } else {
+    anchor = cosine >= 0 ? 'start' : 'end';
+    x = point.x + (cosine >= 0 ? radius + 8 : -radius - 8);
+    y = point.y + 3;
+  }
+
+  if (anchor === 'start' && x + estimatedWidth > layout.width - 12) {
+    anchor = 'end';
+    x = point.x - radius - 8;
+  } else if (anchor === 'end' && x - estimatedWidth < 12) {
+    anchor = 'start';
+    x = point.x + radius + 8;
+  }
+
+  return {
+    x,
+    y,
+    anchor,
+    subY: y + 13,
+    subAnchor: anchor,
+  };
+}
+
+function applyGraphTransform() {
+  const viewport = document.querySelector('#network-graph .graph-viewport');
+  if (!viewport) return;
+  const view = state.networkGraphView;
+  viewport.setAttribute('transform', `translate(${view.x} ${view.y}) scale(${view.k})`);
+}
+
+function redrawGraphGeometry() {
+  const layout = state.networkGraphLayout;
+  if (!layout) return;
+  const svg = document.querySelector('#network-graph svg');
+  if (!svg) return;
+  for (const group of svg.querySelectorAll('.graph-node')) {
+    const nodeId = group.dataset.nodeId;
+    const point = layout.positions.get(nodeId);
+    if (!point) continue;
+    const node = { id: nodeId, rotulo: group.dataset.label, central: group.dataset.central === '1' };
+    node.ring = Number(group.dataset.ring ?? 1);
+    const radius = Number(group.querySelector('circle')?.getAttribute('r') ?? 8);
+    const circle = group.querySelector('circle');
+    if (circle) {
+      circle.setAttribute('cx', point.x.toFixed(1));
+      circle.setAttribute('cy', point.y.toFixed(1));
+    }
+    const label = graphLabelPoint(node, point, layout, radius);
+    const main = group.querySelector('[data-role="main"]');
+    if (main) {
+      main.setAttribute('x', label.x.toFixed(1));
+      main.setAttribute('y', label.y.toFixed(1));
+      main.setAttribute('text-anchor', label.anchor);
+    }
+    const sub = group.querySelector('[data-role="sub"]');
+    if (sub) {
+      sub.setAttribute('x', label.x.toFixed(1));
+      sub.setAttribute('y', label.subY.toFixed(1));
+      sub.setAttribute('text-anchor', label.subAnchor);
+    }
+  }
+  for (const edge of svg.querySelectorAll('.graph-edge')) {
+    const a = layout.positions.get(edge.dataset.from);
+    const b = layout.positions.get(edge.dataset.to);
+    if (a && b) edge.setAttribute('d', graphEdgePath(a, b));
+  }
+}
+
 function renderNetworkGraph(data) {
   const container = $('network-graph');
   if (!container) return;
@@ -1656,69 +1866,12 @@ function renderNetworkGraph(data) {
     return;
   }
 
-  const width = Math.max(560, Math.round(container.clientWidth || 900));
-  const height = Math.max(420, Math.round(container.clientHeight || 640));
-  const positions = new Map();
-  nodes.forEach((node, index) => {
-    const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2;
-    const radius = node.central ? 0 : Math.min(width, height) * 0.34;
-    positions.set(node.id, {
-      x: width / 2 + Math.cos(angle) * radius,
-      y: height / 2 + Math.sin(angle) * radius,
-    });
-  });
-
-  const degree = new Map();
-  for (const edge of activeEdges) {
-    degree.set(edge.origem, (degree.get(edge.origem) ?? 0) + 1);
-    degree.set(edge.destino, (degree.get(edge.destino) ?? 0) + 1);
-  }
-
-  for (let iteration = 0; iteration < 180; iteration++) {
-    const forces = new Map(nodes.map((node) => [node.id, { x: 0, y: 0 }]));
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = positions.get(nodes[i].id);
-        const b = positions.get(nodes[j].id);
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        const distance = Math.max(24, Math.hypot(dx, dy));
-        const force = 5200 / (distance * distance);
-        const ux = dx / distance;
-        const uy = dy / distance;
-        forces.get(nodes[i].id).x += ux * force;
-        forces.get(nodes[i].id).y += uy * force;
-        forces.get(nodes[j].id).x -= ux * force;
-        forces.get(nodes[j].id).y -= uy * force;
-      }
-    }
-    for (const edge of activeEdges) {
-      const a = positions.get(edge.origem);
-      const b = positions.get(edge.destino);
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      const desired = edge.tipo === 'socio_de' ? 135 : 110;
-      const force = (distance - desired) * 0.0035;
-      const ux = dx / distance;
-      const uy = dy / distance;
-      forces.get(edge.origem).x += ux * force;
-      forces.get(edge.origem).y += uy * force;
-      forces.get(edge.destino).x -= ux * force;
-      forces.get(edge.destino).y -= uy * force;
-    }
-    for (const node of nodes) {
-      const point = positions.get(node.id);
-      const force = forces.get(node.id);
-      force.x += (width / 2 - point.x) * 0.0009;
-      force.y += (height / 2 - point.y) * 0.0009;
-      point.x += Math.max(-7, Math.min(7, force.x));
-      point.y += Math.max(-7, Math.min(7, force.y));
-      point.x = Math.max(36, Math.min(width - 36, point.x));
-      point.y = Math.max(36, Math.min(height - 36, point.y));
-    }
-  }
+  const width = Math.max(980, Math.round(container.clientWidth || 900));
+  const height = Math.max(900, Math.round(container.clientHeight || 820));
+  const layout = buildRadialLayout(nodes, activeEdges, width, height);
+  const { positions } = layout;
+  state.networkGraphLayout = layout;
+  state.networkGraphView = { x: 0, y: 0, k: 1 };
 
   const edgeSvg = activeEdges
     .map((edge) => {
@@ -1727,39 +1880,53 @@ function renderNetworkGraph(data) {
       if (!a || !b) return '';
       const color = NETWORK_EDGE_COLOR[edge.tipo] ?? '#9aa8ae';
       const widthLine = edge.tipo === 'socio_de' ? 1.8 : 1.1;
-      return `<line class="graph-edge ${escapeHtml(edge.confianca)}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(
-        1,
-      )}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${color}" stroke-width="${widthLine}" />`;
+      return `<path class="graph-edge ${escapeHtml(edge.confianca)}" data-from="${escapeHtml(
+        edge.origem,
+      )}" data-to="${escapeHtml(edge.destino)}" d="${graphEdgePath(
+        a,
+        b,
+      )}" fill="none" stroke="${color}" stroke-width="${widthLine}" stroke-linecap="round" />`;
     })
     .join('');
 
   const nodeSvg = nodes
     .map((node) => {
       const point = positions.get(node.id);
+      if (!point) return '';
       const radius = networkNodeRadius(node);
       const color = networkNodeColor(node);
       const label = networkNodeLabel();
-      const labelY = point.y - radius - 8;
-      const subY = point.y + radius + 13;
-      const safeLabel = shorten(node.rotulo, 34);
-      const safeSub = shorten(node.subtitulo, 40);
+      const labelPoint = graphLabelPoint(node, point, layout);
+      const safeLabel = shorten(node.rotulo, 30);
+      const safeSub = shorten(node.subtitulo, 42);
       const cn = node.cnpj_base ? ` data-cnpj="${escapeHtml(node.cnpj_base)}"` : '';
+      const showSub = node.central || node.hub;
       return `
         <g class="graph-node" data-node-id="${escapeHtml(node.id)}"${cn} data-tipo="${escapeHtml(
           node.tipo,
-        )}" data-label="${escapeHtml(node.rotulo)}" data-sub="${escapeHtml(node.subtitulo)}">
+        )}" data-label="${escapeHtml(node.rotulo)}" data-sub="${escapeHtml(
+          node.subtitulo,
+        )}" data-ring="${node.ring ?? 1}" data-central="${node.central ? '1' : '0'}">
           <circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${radius}" fill="${color}" stroke="${
             node.hub ? '#e8a33d' : '#ffffff'
           }" stroke-width="${node.hub ? 3 : 1.5}" />
           <title>${escapeHtml(node.rotulo)} — ${escapeHtml(node.subtitulo)}</title>
           ${
             label
-              ? `<text class="graph-label" x="${point.x.toFixed(1)}" y="${labelY.toFixed(
+              ? `<text class="graph-label" data-role="main" x="${labelPoint.x.toFixed(
                   1,
-                )}" text-anchor="middle">${escapeHtml(safeLabel)}</text>
-                 <text class="graph-label sub" x="${point.x.toFixed(1)}" y="${subY.toFixed(
-                   1,
-                 )}" text-anchor="middle">${escapeHtml(safeSub)}</text>`
+                )}" y="${labelPoint.y.toFixed(1)}" text-anchor="${labelPoint.anchor}">${escapeHtml(
+                  safeLabel,
+                )}</text>
+                 ${
+                   showSub
+                     ? `<text class="graph-label sub" data-role="sub" x="${labelPoint.x.toFixed(
+                         1,
+                       )}" y="${labelPoint.subY.toFixed(1)}" text-anchor="${
+                         labelPoint.subAnchor
+                       }">${escapeHtml(safeSub)}</text>`
+                     : ''
+                 }`
               : ''
           }
         </g>`;
@@ -1768,12 +1935,114 @@ function renderNetworkGraph(data) {
 
   container.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Mapa de ligações da empresa">
-      ${edgeSvg}
-      ${nodeSvg}
+      <g class="graph-viewport" transform="translate(0 0) scale(1)">
+        ${edgeSvg}
+        ${nodeSvg}
+      </g>
     </svg>`;
 
   const svg = container.querySelector('svg');
-  svg?.addEventListener('click', (event) => {
+  if (!svg) return;
+
+  const toSvgPoint = (event) => {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const matrix = svg.getScreenCTM();
+    return matrix ? point.matrixTransform(matrix.inverse()) : { x: 0, y: 0 };
+  };
+
+  svg.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const view = state.networkGraphView;
+      const local = toSvgPoint(event);
+      const next = Math.min(3, Math.max(0.45, view.k * Math.exp(-event.deltaY * 0.0012)));
+      view.x = local.x - (local.x - view.x) * (next / view.k);
+      view.y = local.y - (local.y - view.y) * (next / view.k);
+      view.k = next;
+      applyGraphTransform();
+    },
+    { passive: false },
+  );
+
+  svg.addEventListener('pointerdown', (event) => {
+    const node = event.target.closest('.graph-node');
+    if (node) {
+      const point = positions.get(node.dataset.nodeId);
+      if (!point) return;
+      event.stopPropagation();
+      state.networkGraphDrag = {
+        nodeId: node.dataset.nodeId,
+        pointerId: event.pointerId,
+        start: toSvgPoint(event),
+        origin: { x: point.x, y: point.y },
+        moved: false,
+      };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+    state.networkGraphPan = {
+      pointerId: event.pointerId,
+      start: toSvgPoint(event),
+      origin: { x: state.networkGraphView.x, y: state.networkGraphView.y },
+      moved: false,
+    };
+    svg.setPointerCapture(event.pointerId);
+  });
+
+  svg.addEventListener('pointermove', (event) => {
+    const drag = state.networkGraphDrag;
+    if (drag && drag.pointerId === event.pointerId) {
+      const local = toSvgPoint(event);
+      const point = positions.get(drag.nodeId);
+      if (!point) return;
+      const dx = (local.x - drag.start.x) / state.networkGraphView.k;
+      const dy = (local.y - drag.start.y) / state.networkGraphView.k;
+      if (Math.hypot(dx, dy) > 3) drag.moved = true;
+      point.x = Math.max(24, Math.min(layout.width - 24, drag.origin.x + dx));
+      point.y = Math.max(24, Math.min(layout.height - 24, drag.origin.y + dy));
+      redrawGraphGeometry();
+      return;
+    }
+    const pan = state.networkGraphPan;
+    if (pan && pan.pointerId === event.pointerId) {
+      const local = toSvgPoint(event);
+      const dx = local.x - pan.start.x;
+      const dy = local.y - pan.start.y;
+      if (Math.hypot(dx, dy) > 3) pan.moved = true;
+      state.networkGraphView.x = pan.origin.x + dx;
+      state.networkGraphView.y = pan.origin.y + dy;
+      applyGraphTransform();
+    }
+  });
+
+  const endDrag = (event) => {
+    const drag = state.networkGraphDrag;
+    if (drag && drag.pointerId === event.pointerId) {
+      state.networkGraphMoved = drag.moved;
+      state.networkGraphDrag = null;
+    }
+    const pan = state.networkGraphPan;
+    if (pan && pan.pointerId === event.pointerId) {
+      state.networkGraphMoved = pan.moved;
+      state.networkGraphPan = null;
+    }
+    if (state.networkGraphMoved) {
+      setTimeout(() => {
+        state.networkGraphMoved = false;
+      }, 80);
+    }
+  };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  svg.addEventListener('click', (event) => {
+    if (state.networkGraphMoved) {
+      state.networkGraphMoved = false;
+      return;
+    }
     const target = event.target.closest('[data-node-id]');
     if (!target) return;
     if (target.dataset.cnpj) {
@@ -1844,7 +2113,9 @@ function renderNetworkCompanies(data) {
           return `<div class="network-company" data-cnpj="${escapeHtml(item.cnpj_base)}">
             <div class="network-company-name">${escapeHtml(item.razao_social)}</div>
             <div class="network-company-tag">${escapeHtml(
-              item.ring === 2 ? `2ª camada · ${relacoes || 'sócio'}` : relacoes || 'centro',
+              item.ring >= 2
+                ? `${item.ring}ª camada · ${relacoes || 'sócio'}`
+                : relacoes || 'centro',
             )}</div>
             <div class="network-company-meta">${escapeHtml(local || 'Local não informado')} · ${escapeHtml(
               item.situacao ?? 'situação não informada',
@@ -1878,7 +2149,8 @@ function renderNetwork(data) {
       )
       .join('')}
     <span class="legend-item"><i class="legend-dot" style="background:#e8a33d"></i>Hub / centro</span>
-    <span class="legend-item"><i class="legend-dot" style="background:#7c5cbf"></i>2ª camada</span>`;
+    <span class="legend-item"><i class="legend-dot" style="background:#7c5cbf"></i>2ª camada</span>
+    <span class="legend-item"><i class="legend-dot" style="background:#b06ab3"></i>3ª camada</span>`;
   renderNetworkSummary(data);
   renderNetworkCompanies(data);
   renderNetworkGraph(data);

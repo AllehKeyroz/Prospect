@@ -114,7 +114,7 @@ describe('buildCompanyGraph', () => {
     expect(graph.empresas).toHaveLength(2);
   });
 
-  it('expande o hub para sócios e empresas da segunda camada', () => {
+  it('expande o hub para sócios e empresas de camadas seguintes', () => {
     const graph = buildHubGraph({
       tipo: 'email',
       valor: email.valor,
@@ -134,7 +134,7 @@ describe('buildCompanyGraph', () => {
       ],
     });
 
-    expect(graph.nodes.find((node) => node.id === 'empresa:44444444')?.ring).toBe(2);
+    expect(graph.nodes.find((node) => node.id === 'empresa:44444444')?.ring).toBe(3);
     expect(graph.nodes.some((node) => node.tipo === 'socio' && node.ring === 2)).toBe(true);
     expect(graph.edges.some((edge) => edge.tipo === 'socio_de')).toBe(true);
     expect(graph.empresas.some((item) => item.cnpj_base === '44444444')).toBe(true);
