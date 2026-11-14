@@ -1,0 +1,41 @@
+{
+  "name": "cnpj-prospect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MVP interno de analise de mercado e concorrentes com dados abertos de CNPJ",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/api/server.ts",
+    "start": "node dist/src/api/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "sample": "tsx src/ingest/makeSample.ts",
+    "prepare:snapshot": "tsx src/ingest/prepareSnapshot.ts",
+    "ingest:sample": "tsx src/ingest/loadSample.ts",
+    "ingest:snapshot": "tsx src/ingest/loadSnapshot.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^2.0.0-r.1",
+    "@fastify/cors": "^11.4.3",
+    "@fastify/static": "^10.1.11",
+    "csv-parse": "^7.0.3",
+    "dotenv": "^18.0.10",
+    "fastify": "^5.12.8",
+    "iconv-lite": "^0.7.3",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/yauzl": "^3.4.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

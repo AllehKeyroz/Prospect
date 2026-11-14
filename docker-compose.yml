@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DUCKDB_PATH: /data/cnpj.duckdb
+      DATA_DIR: /data
+      MEMORY_LIMIT: 8GB
+      THREADS: 8
+      SNAPSHOT: 2026-10
+    volumes:
+      - ./data:/data
+    mem_limit: 12g
+    restart: unless-stopped

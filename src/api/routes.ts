@@ -1,0 +1,386 @@
+import type { FastifyInstance } from 'fastify';
+import { config } from '../config.js';
+import { query, queryOne } from '../db/duckdb.js';
+import { formatCnpj, isValidCnpj, normalizeCnpj } from '../lib/cnpj.js';
+import { toCsvLine } from '../lib/text.js';
+import {
+  buildCountQuery,
+  buildListQuery,
+  buildResumoQuery,
+  buildStatsQuery,
+  toSearchInput,
+} from './queryBuilder.js';
+import {
+  cnpjParamsSchema,
+  exportSchema,
+  searchSchema,
+  statsSchema,
+} from './schemas.js';
+
+function asNumber(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function asNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function metaToObject(rows: Array<{ key: string; value: string }>): Record<string, string> {
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+}
+
+function csvValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return String(value).replace('.', ',');
+  if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
+    return value.replace('.', ',');
+  }
+  return String(value);
+}
+
+function addressLine(row: Record<string, unknown>): string {
+  const parts = [
+    row.tipo_logradouro,
+    row.logradouro,
+    row.numero,
+    row.complemento,
+  ].filter((part) => part !== null && part !== undefined && String(part).trim() !== '');
+  return parts.join(' ');
+}
+
+export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/health', async (_request, reply) => {
+    try {
+      await queryOne('SELECT 1 AS ok');
+      const metaRows = await query<{ key: string; value: string }>('SELECT key, value FROM meta');
+      const meta = metaToObject(metaRows);
+      const memory = process.memoryUsage();
+      return {
+        ok: true,
+        snapshot: meta.snapshot ?? config.snapshot,
+        generated_at: meta.generated_at ?? null,
+        rows: {
+          estabelecimentos: asNumber(meta.estabelecimentos),
+          empresas: asNumber(meta.empresas),
+          socios: asNumber(meta.socios),
+        },
+        memory_mb: Math.round(memory.rss / 1024 / 1024),
+        uptime_s: Math.round(process.uptime()),
+      };
+    } catch (error) {
+      app.log.error(error);
+      return reply.status(503).send({ ok: false, error: 'Banco indisponível' });
+    }
+  });
+
+  app.get('/api/meta', async () => {
+    const rows = await query<{ key: string; value: string }>('SELECT key, value FROM meta');
+    return metaToObject(rows);
+  });
+
+  app.get('/api/opcoes', async () => {
+    const [ufs, cnaes, naturezas, situacoes, portes] = await Promise.all([
+      query<{ uf: string }>(
+        "SELECT DISTINCT uf FROM estabelecimentos WHERE uf IS NOT NULL AND uf <> '' ORDER BY uf",
+      ),
+      query<{ codigo: string; descricao: string }>(
+        'SELECT codigo, descricao FROM dim_cnae ORDER BY codigo',
+      ),
+      query<{ codigo: string; descricao: string }>(
+        'SELECT codigo, descricao FROM dim_natureza ORDER BY codigo',
+      ),
+      query<{ codigo: string; descricao: string }>(`
+        SELECT DISTINCT situacao AS codigo,
+          CASE situacao
+            WHEN '01' THEN 'Nula'
+            WHEN '02' THEN 'Ativa'
+            WHEN '03' THEN 'Suspensa'
+            WHEN '04' THEN 'Inapta'
+            WHEN '08' THEN 'Baixada'
+            ELSE 'Outra'
+          END AS descricao
+        FROM estabelecimentos
+        WHERE situacao IS NOT NULL AND situacao <> ''
+        ORDER BY codigo
+      `),
+      query<{ codigo: string; descricao: string }>(`
+        SELECT DISTINCT porte AS codigo,
+          CASE porte
+            WHEN '01' THEN 'Microempresa'
+            WHEN '03' THEN 'Empresa de Pequeno Porte'
+            WHEN '05' THEN 'Demais'
+            ELSE 'Não informado'
+          END AS descricao
+        FROM empresas
+        WHERE porte IS NOT NULL AND porte <> ''
+        ORDER BY codigo
+      `),
+    ]);
+
+    return {
+      ufs: ufs.map((row) => row.uf),
+      cnaes,
+      naturezas,
+      situacoes,
+      portes,
+    };
+  });
+
+  app.get('/api/empresas', async (request, reply) => {
+    const parsed = searchSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const filters = parsed.data;
+    const listQuery = buildListQuery(filters);
+    const countQuery = buildCountQuery(filters);
+    const resumoQuery = buildResumoQuery(filters);
+
+    const [rows, countRows, resumoRows] = await Promise.all([
+      query(listQuery.sql, listQuery.params),
+      query<{ total: unknown }>(countQuery.sql, countQuery.params),
+      query<Record<string, unknown>>(resumoQuery.sql, resumoQuery.params),
+    ]);
+
+    const total = asNumber(countRows[0]?.total);
+    const resumo = resumoRows[0] ?? {};
+
+    return {
+      data: rows.map((row) => ({
+        ...row,
+        cnpj_formatado: formatCnpj(String(row.cnpj ?? '')),
+        capital_social: asNullableNumber(row.capital_social),
+        idade_anos: asNullableNumber(row.idade_anos),
+      })),
+      total,
+      page: filters.page,
+      page_size: filters.page_size,
+      total_pages: total === 0 ? 0 : Math.ceil(total / filters.page_size),
+      resumo: {
+        total: asNumber(resumo.total),
+        ativas: asNumber(resumo.ativas),
+        mais_3_anos: asNumber(resumo.mais_3_anos),
+        com_email: asNumber(resumo.com_email),
+        com_telefone: asNumber(resumo.com_telefone),
+      },
+      filters,
+    };
+  });
+
+  app.get('/api/estatisticas', async (request, reply) => {
+    const parsed = statsSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const statsQuery = buildStatsQuery(parsed.data);
+    const rows = await query<{ chave: string; rotulo: string | null; total: unknown }>(
+      statsQuery.sql,
+      statsQuery.params,
+    );
+    return {
+      group_by: parsed.data.group_by,
+      data: rows.map((row) => ({
+        chave: row.chave,
+        rotulo: row.rotulo ?? row.chave,
+        total: asNumber(row.total),
+      })),
+    };
+  });
+
+  app.get('/api/cnpj/:cnpj', async (request, reply) => {
+    const params = cnpjParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: 'CNPJ inválido' });
+    }
+
+    const normalized = normalizeCnpj(params.data.cnpj);
+    if (normalized.length !== 14 && normalized.length !== 8) {
+      return reply.status(400).send({ error: 'Informe 8 ou 14 caracteres de CNPJ' });
+    }
+    if (normalized.length === 14 && !isValidCnpj(normalized)) {
+      return reply.status(400).send({ error: 'Dígito verificador do CNPJ inválido' });
+    }
+
+    const base = normalized.slice(0, 8);
+
+    const [empresaRows, estabelecimentoRows, socioRows, simplesRows] =
+      await Promise.all([
+        query<Record<string, unknown>>(
+          `SELECT e.*, n.descricao AS natureza_descricao,
+                  q.descricao AS qualificacao_responsavel_descricao,
+                  CASE e.porte
+                    WHEN '01' THEN 'Microempresa'
+                    WHEN '03' THEN 'Empresa de Pequeno Porte'
+                    WHEN '05' THEN 'Demais'
+                    ELSE 'Não informado'
+                  END AS porte_descricao
+           FROM empresas e
+           LEFT JOIN dim_natureza n ON n.codigo = e.natureza_juridica
+           LEFT JOIN dim_qualificacao q ON q.codigo = e.qualificacao_responsavel
+           WHERE e.cnpj_base = $base
+           LIMIT 1`,
+          { base },
+        ),
+        query<Record<string, unknown>>(
+          `SELECT e.*, c.descricao AS cnae_descricao, m.descricao AS municipio_nome,
+                  CASE e.situacao
+                    WHEN '01' THEN 'Nula'
+                    WHEN '02' THEN 'Ativa'
+                    WHEN '03' THEN 'Suspensa'
+                    WHEN '04' THEN 'Inapta'
+                    WHEN '08' THEN 'Baixada'
+                    ELSE 'Outra'
+                  END AS situacao_descricao,
+                  CASE e.matriz_filial
+                    WHEN '1' THEN 'Matriz'
+                    WHEN '2' THEN 'Filial'
+                    ELSE 'Não informado'
+                  END AS matriz_filial_descricao,
+                  date_diff('year', e.data_inicio, current_date) AS idade_anos,
+                  coalesce(e.data_inicio <= current_date - INTERVAL 3 YEAR, false) AS is_mais_3_anos
+           FROM estabelecimentos e
+           LEFT JOIN dim_cnae c ON c.codigo = e.cnae_principal
+           LEFT JOIN dim_municipio m ON m.codigo = e.municipio_codigo
+           WHERE e.cnpj_base = $base
+           ORDER BY e.matriz_filial, e.cnpj`,
+          { base },
+        ),
+        query<Record<string, unknown>>(
+          `SELECT s.*, q.descricao AS qualificacao_socio_descricao,
+                  qr.descricao AS qualificacao_representante_descricao
+           FROM socios s
+           LEFT JOIN dim_qualificacao q ON q.codigo = s.qualificacao_socio
+           LEFT JOIN dim_qualificacao qr ON qr.codigo = s.qualificacao_representante
+           WHERE s.cnpj_base = $base
+           ORDER BY s.nome_socio`,
+          { base },
+        ),
+        query<Record<string, unknown>>(
+          'SELECT * FROM simples WHERE cnpj_base = $base LIMIT 1',
+          { base },
+        ),
+      ]);
+
+    if (empresaRows.length === 0 && estabelecimentoRows.length === 0) {
+      return reply.status(404).send({ error: 'CNPJ não encontrado na base' });
+    }
+
+    return {
+      cnpj: normalized.length === 14 ? normalized : null,
+      cnpj_formatado: normalized.length === 14 ? formatCnpj(normalized) : null,
+      cnpj_base: base,
+      empresa: empresaRows[0]
+        ? {
+            ...empresaRows[0],
+            capital_social: asNullableNumber(empresaRows[0].capital_social),
+          }
+        : null,
+      estabelecimentos: estabelecimentoRows.map((row) => ({
+        ...row,
+        cnpj_formatado: formatCnpj(String(row.cnpj ?? '')),
+        idade_anos: asNullableNumber(row.idade_anos),
+      })),
+      socios: socioRows,
+      simples: simplesRows[0] ?? null,
+    };
+  });
+
+  app.get('/api/export.csv', async (request, reply) => {
+    const parsed = exportSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const filters = toSearchInput({
+      ...parsed.data,
+      page: 1,
+      page_size: config.exportLimit,
+      sort: 'razao_social',
+      order: 'asc',
+    });
+
+    const listQuery = buildListQuery(filters);
+    const rows = await query<Record<string, unknown>>(listQuery.sql, listQuery.params);
+
+    const header = [
+      'CNPJ',
+      'Razão social',
+      'Nome fantasia',
+      'Situação',
+      'Data de abertura',
+      'Idade (anos)',
+      'CNAE principal',
+      'Descrição CNAE',
+      'UF',
+      'Município',
+      'Bairro',
+      'CEP',
+      'Endereço',
+      'E-mail',
+      'DDD 1',
+      'Telefone 1',
+      'DDD 2',
+      'Telefone 2',
+      'Capital social',
+      'Porte',
+      'Natureza jurídica',
+      'Simples',
+      'MEI',
+      'Matriz/Filial',
+    ];
+
+    const lines = [toCsvLine(header, ';')];
+    for (const row of rows) {
+      lines.push(
+        toCsvLine(
+          [
+            formatCnpj(String(row.cnpj ?? '')),
+            row.razao_social ?? '',
+            row.nome_fantasia ?? '',
+            row.situacao_descricao ?? row.situacao ?? '',
+            row.data_inicio ?? '',
+            row.idade_anos ?? '',
+            row.cnae_principal ?? '',
+            row.cnae_descricao ?? '',
+            row.uf ?? '',
+            row.municipio_nome ?? '',
+            row.bairro ?? '',
+            row.cep ?? '',
+            addressLine(row),
+            row.email ?? '',
+            row.ddd1 ?? '',
+            row.telefone1 ?? '',
+            row.ddd2 ?? '',
+            row.telefone2 ?? '',
+            csvValue(row.capital_social),
+            row.porte_descricao ?? '',
+            row.natureza_descricao ?? '',
+            row.opcao_simples ?? '',
+            row.opcao_mei ?? '',
+            row.matriz_filial_descricao ?? '',
+          ],
+          ';',
+        ),
+      );
+    }
+
+    reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="cnpj-export.csv"')
+      .header('X-Export-Limit', String(config.exportLimit));
+    return `\uFEFF${lines.join('\r\n')}`;
+  });
+}

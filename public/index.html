@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CNPJ Prospect — Análise de mercado e concorrentes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">CP</div>
+        <div>
+          <h1>CNPJ Prospect</h1>
+          <p>Análise de mercado e concorrentes com dados abertos da Receita Federal</p>
+        </div>
+      </div>
+      <div class="badges">
+        <span class="badge" id="snapshot-badge">carregando…</span>
+        <span class="badge badge-muted" id="rows-badge">—</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="panel filters-panel">
+        <form id="filters" autocomplete="off">
+          <div class="field field-wide">
+            <label for="q">Busca livre</label>
+            <input
+              id="q"
+              name="q"
+              type="search"
+              placeholder="Razão social, nome fantasia ou CNPJ"
+            />
+          </div>
+
+          <div class="field">
+            <label for="uf">UF</label>
+            <select id="uf" name="uf">
+              <option value="">Todas</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="cnae">CNAE principal</label>
+            <select id="cnae" name="cnae">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="situacao">Situação</label>
+            <select id="situacao" name="situacao">
+              <option value="02" selected>Ativa</option>
+              <option value="">Todas</option>
+              <option value="08">Baixada</option>
+              <option value="04">Inapta</option>
+              <option value="03">Suspensa</option>
+              <option value="01">Nula</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="porte">Porte</label>
+            <select id="porte" name="porte">
+              <option value="">Todos</option>
+              <option value="01">Microempresa</option>
+              <option value="03">Empresa de Pequeno Porte</option>
+              <option value="05">Demais</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="idade_min">Idade mínima (anos)</label>
+            <input id="idade_min" name="idade_min" type="number" min="0" max="150" value="3" />
+          </div>
+
+          <div class="field">
+            <label for="capital_min">Capital social mín. (R$)</label>
+            <input id="capital_min" name="capital_min" type="number" min="0" step="1000" placeholder="0" />
+          </div>
+
+          <div class="field checks">
+            <label class="check"><input type="checkbox" id="simples" name="simples" /> Somente Simples</label>
+            <label class="check"><input type="checkbox" id="mei" name="mei" /> Somente MEI</label>
+            <label class="check"><input type="checkbox" id="com_email" name="com_email" /> Com e-mail</label>
+            <label class="check"><input type="checkbox" id="com_telefone" name="com_telefone" /> Com telefone</label>
+            <label class="check"><input type="checkbox" id="matriz" name="matriz" /> Somente matriz</label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Buscar</button>
+            <button type="button" class="btn" id="clear">Limpar</button>
+            <button type="button" class="btn btn-ghost" id="export">Exportar CSV</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="summary" id="summary">
+        <article class="card"><span>Resultados</span><strong id="sum-total">—</strong></article>
+        <article class="card"><span>Ativas</span><strong id="sum-ativas">—</strong></article>
+        <article class="card"><span>Mais de 3 anos</span><strong id="sum-mais3">—</strong></article>
+        <article class="card"><span>Com e-mail</span><strong id="sum-email">—</strong></article>
+      </section>
+
+      <div class="layout">
+        <section class="panel results-panel">
+          <div class="results-head">
+            <div>
+              <h2>Empresas</h2>
+              <p id="result-info">Informe os filtros e clique em buscar.</p>
+            </div>
+            <div class="pagination" id="pagination-top"></div>
+          </div>
+
+          <div class="table-wrap">
+            <table id="results">
+              <thead>
+                <tr>
+                  <th>CNPJ</th>
+                  <th>Empresa</th>
+                  <th>Atividade</th>
+                  <th>Local</th>
+                  <th>Situação</th>
+                  <th>Abertura</th>
+                  <th>Capital</th>
+                  <th>Contato</th>
+                </tr>
+              </thead>
+              <tbody id="results-body">
+                <tr><td colspan="8" class="empty">Carregando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pagination pagination-bottom" id="pagination-bottom"></div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel side-panel">
+            <h3>Top CNAEs</h3>
+            <div id="stats-cnae" class="stats"><p class="muted">—</p></div>
+          </section>
+          <section class="panel side-panel">
+            <h3>Top UFs</h3>
+            <div id="stats-uf" class="stats"><p class="muted">—</p></div>
+          </section>
+          <section class="panel side-panel note">
+            <h3>Sobre a amostra</h3>
+            <p>
+              Esta carga inicial usa uma amostra do shard 1 (CNPJ base
+              00000000–04631960) do snapshot <strong id="note-snapshot">2026-10</strong>.
+              Os totais servem para validar a aplicação; não representam o Brasil.
+            </p>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <dialog id="detail" class="detail-dialog">
+      <div class="detail-head">
+        <div>
+          <p class="eyebrow">Ficha cadastral</p>
+          <h2 id="detail-title">—</h2>
+          <p id="detail-subtitle" class="muted"></p>
+        </div>
+        <button type="button" class="icon-btn" id="close-detail" aria-label="Fechar">×</button>
+      </div>
+      <div id="detail-content" class="detail-content"></div>
+    </dialog>
+
+    <footer class="footer">
+      <p>
+        Fonte: Receita Federal — Dados Abertos de CNPJ. Uso interno.
+        Dados públicos, com CPF de sócios mascarado pela origem.
+      </p>
+    </footer>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

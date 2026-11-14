@@ -1,0 +1,314 @@
+{
+  "generated_at": "2026-11-14T14:57:50.156Z",
+  "source": "https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9",
+  "webdav": "https://arquivos.receitafederal.gov.br/public.php/webdav",
+  "latest_snapshot": "2026-10",
+  "months_available": [
+    "2023-05",
+    "2023-06",
+    "2023-07",
+    "2023-08",
+    "2023-09",
+    "2023-10",
+    "2023-11",
+    "2023-12",
+    "2024-01",
+    "2024-02",
+    "2024-03",
+    "2024-04",
+    "2024-05",
+    "2024-06",
+    "2024-07",
+    "2024-08",
+    "2024-09",
+    "2024-10",
+    "2024-11",
+    "2024-12",
+    "2025-01",
+    "2025-02",
+    "2025-03",
+    "2025-04",
+    "2025-05",
+    "2025-06",
+    "2025-07",
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+    "2026-08",
+    "2026-09",
+    "2026-10"
+  ],
+  "months_count": 42,
+  "latest_folder_modified": "Tue, 13 Oct 2026 22:09:31 GMT",
+  "files": [
+    {
+      "name": "Cnaes.zip",
+      "size_bytes": 22078,
+      "size_mb": 0.02,
+      "modified": "Tue, 13 Oct 2026 22:00:16 GMT",
+      "etag": "17e2f9b2f51164f0e35a0e6011551c63"
+    },
+    {
+      "name": "Empresas0.zip",
+      "size_bytes": 570972127,
+      "size_mb": 544.52,
+      "modified": "Tue, 13 Oct 2026 22:00:54 GMT",
+      "etag": "51ffd6930af710720929322b11eb1027"
+    },
+    {
+      "name": "Empresas1.zip",
+      "size_bytes": 77901368,
+      "size_mb": 74.29,
+      "modified": "Tue, 13 Oct 2026 22:01:01 GMT",
+      "etag": "6633896e0be254a1492fa1e601e3abce"
+    },
+    {
+      "name": "Empresas2.zip",
+      "size_bytes": 79125712,
+      "size_mb": 75.46,
+      "modified": "Tue, 13 Oct 2026 22:01:07 GMT",
+      "etag": "0188eb1ae369bdba0d8079d97bac5c86"
+    },
+    {
+      "name": "Empresas3.zip",
+      "size_bytes": 85102880,
+      "size_mb": 81.16,
+      "modified": "Tue, 13 Oct 2026 22:01:14 GMT",
+      "etag": "7f8efb532ed87ae7a9543452b191ef82"
+    },
+    {
+      "name": "Empresas4.zip",
+      "size_bytes": 90222463,
+      "size_mb": 86.04,
+      "modified": "Tue, 13 Oct 2026 22:01:21 GMT",
+      "etag": "6787c0295649c453370886f2d7de8b48"
+    },
+    {
+      "name": "Empresas5.zip",
+      "size_bytes": 97310075,
+      "size_mb": 92.8,
+      "modified": "Tue, 13 Oct 2026 22:01:28 GMT",
+      "etag": "a37dace1a0e79e5074b48189517e86e0"
+    },
+    {
+      "name": "Empresas6.zip",
+      "size_bytes": 94194819,
+      "size_mb": 89.83,
+      "modified": "Tue, 13 Oct 2026 22:01:36 GMT",
+      "etag": "cacc4632c09c0f47f6241fc591af428a"
+    },
+    {
+      "name": "Empresas7.zip",
+      "size_bytes": 98676055,
+      "size_mb": 94.1,
+      "modified": "Tue, 13 Oct 2026 22:01:43 GMT",
+      "etag": "61313f2e279e961092d839f209a4f191"
+    },
+    {
+      "name": "Empresas8.zip",
+      "size_bytes": 98736571,
+      "size_mb": 94.16,
+      "modified": "Tue, 13 Oct 2026 22:01:50 GMT",
+      "etag": "244475b345e6245c3b0a408d0615ec14"
+    },
+    {
+      "name": "Empresas9.zip",
+      "size_bytes": 94309858,
+      "size_mb": 89.94,
+      "modified": "Tue, 13 Oct 2026 22:01:57 GMT",
+      "etag": "b5d589cca95c7ac5028fcc58275f3cd0"
+    },
+    {
+      "name": "Estabelecimentos0.zip",
+      "size_bytes": 2277696710,
+      "size_mb": 2172.18,
+      "modified": "Tue, 13 Oct 2026 22:04:26 GMT",
+      "etag": "22dcda04560616140e517fbfc27d0513"
+    },
+    {
+      "name": "Estabelecimentos1.zip",
+      "size_bytes": 341948627,
+      "size_mb": 326.11,
+      "modified": "Tue, 13 Oct 2026 22:04:51 GMT",
+      "etag": "6433ed641c5f40f60897aaf0cfca6efe"
+    },
+    {
+      "name": "Estabelecimentos2.zip",
+      "size_bytes": 336288966,
+      "size_mb": 320.71,
+      "modified": "Tue, 13 Oct 2026 22:05:15 GMT",
+      "etag": "ef57ef066d9774b1e13fe976b30739da"
+    },
+    {
+      "name": "Estabelecimentos3.zip",
+      "size_bytes": 368597760,
+      "size_mb": 351.52,
+      "modified": "Tue, 13 Oct 2026 22:05:40 GMT",
+      "etag": "faa98a725c40222ec0f124e254a2ffb6"
+    },
+    {
+      "name": "Estabelecimentos4.zip",
+      "size_bytes": 340413465,
+      "size_mb": 324.64,
+      "modified": "Tue, 13 Oct 2026 22:06:03 GMT",
+      "etag": "317f8c14e0d5a2cabdd187e8c8091d03"
+    },
+    {
+      "name": "Estabelecimentos5.zip",
+      "size_bytes": 335452647,
+      "size_mb": 319.91,
+      "modified": "Tue, 13 Oct 2026 22:06:26 GMT",
+      "etag": "394132ac44c4c51d437d08556257b1a6"
+    },
+    {
+      "name": "Estabelecimentos6.zip",
+      "size_bytes": 369782592,
+      "size_mb": 352.65,
+      "modified": "Tue, 13 Oct 2026 22:06:50 GMT",
+      "etag": "3409755a71fe9bd24359d7acaf0d2957"
+    },
+    {
+      "name": "Estabelecimentos7.zip",
+      "size_bytes": 338419961,
+      "size_mb": 322.74,
+      "modified": "Tue, 13 Oct 2026 22:07:14 GMT",
+      "etag": "ba582c970b9848bc4ada98d6af2622c8"
+    },
+    {
+      "name": "Estabelecimentos8.zip",
+      "size_bytes": 343568209,
+      "size_mb": 327.65,
+      "modified": "Tue, 13 Oct 2026 22:07:37 GMT",
+      "etag": "84a6dc490634bf252b669000b2119ad9"
+    },
+    {
+      "name": "Estabelecimentos9.zip",
+      "size_bytes": 364761032,
+      "size_mb": 347.86,
+      "modified": "Tue, 13 Oct 2026 22:08:02 GMT",
+      "etag": "fb2971079e156fecf3109ae1a5c41798"
+    },
+    {
+      "name": "Motivos.zip",
+      "size_bytes": 1180,
+      "size_mb": 0,
+      "modified": "Tue, 13 Oct 2026 22:08:03 GMT",
+      "etag": "316cb8cf396e749f726cb991cd60be6a"
+    },
+    {
+      "name": "Municipios.zip",
+      "size_bytes": 43443,
+      "size_mb": 0.04,
+      "modified": "Tue, 13 Oct 2026 22:08:04 GMT",
+      "etag": "f01c2938ea6097d7bceca9397601d7c2"
+    },
+    {
+      "name": "Naturezas.zip",
+      "size_bytes": 1585,
+      "size_mb": 0,
+      "modified": "Tue, 13 Oct 2026 22:08:05 GMT",
+      "etag": "066958a64b56e58df989940b581df0c0"
+    },
+    {
+      "name": "Paises.zip",
+      "size_bytes": 2745,
+      "size_mb": 0,
+      "modified": "Tue, 13 Oct 2026 22:08:06 GMT",
+      "etag": "1e9ede139ac2a1e7aac5624aff42adf8"
+    },
+    {
+      "name": "Qualificacoes.zip",
+      "size_bytes": 980,
+      "size_mb": 0,
+      "modified": "Tue, 13 Oct 2026 22:08:07 GMT",
+      "etag": "40069615b0bea4668ed0005aefc33f4f"
+    },
+    {
+      "name": "Simples.zip",
+      "size_bytes": 310608217,
+      "size_mb": 296.22,
+      "modified": "Tue, 13 Oct 2026 22:08:29 GMT",
+      "etag": "9c9dea7338d3d69842786fa751bcae9d"
+    },
+    {
+      "name": "Socios0.zip",
+      "size_bytes": 251430070,
+      "size_mb": 239.78,
+      "modified": "Tue, 13 Oct 2026 22:08:47 GMT",
+      "etag": "51795a6e01068ab58d31c46ada39f748"
+    },
+    {
+      "name": "Socios1.zip",
+      "size_bytes": 49546399,
+      "size_mb": 47.25,
+      "modified": "Tue, 13 Oct 2026 22:08:52 GMT",
+      "etag": "544dc4a8c9594d98e00feb26cba1c6da"
+    },
+    {
+      "name": "Socios2.zip",
+      "size_bytes": 49056863,
+      "size_mb": 46.78,
+      "modified": "Tue, 13 Oct 2026 22:08:56 GMT",
+      "etag": "1094ddf7d3dbe66d9cfeaac7bd7af4d5"
+    },
+    {
+      "name": "Socios3.zip",
+      "size_bytes": 49011621,
+      "size_mb": 46.74,
+      "modified": "Tue, 13 Oct 2026 22:09:00 GMT",
+      "etag": "edfaa952ab6c52f1b9cff5b1d164e2a2"
+    },
+    {
+      "name": "Socios4.zip",
+      "size_bytes": 49560198,
+      "size_mb": 47.26,
+      "modified": "Tue, 13 Oct 2026 22:09:04 GMT",
+      "etag": "f1b9a09d35021ee7a675137a2f614398"
+    },
+    {
+      "name": "Socios5.zip",
+      "size_bytes": 49063747,
+      "size_mb": 46.79,
+      "modified": "Tue, 13 Oct 2026 22:09:08 GMT",
+      "etag": "558d3a09eae55391da8f6087f04d76aa"
+    },
+    {
+      "name": "Socios6.zip",
+      "size_bytes": 49147194,
+      "size_mb": 46.87,
+      "modified": "Tue, 13 Oct 2026 22:09:13 GMT",
+      "etag": "546a435a841d05841a940145c53e7936"
+    },
+    {
+      "name": "Socios7.zip",
+      "size_bytes": 49212792,
+      "size_mb": 46.93,
+      "modified": "Tue, 13 Oct 2026 22:09:17 GMT",
+      "etag": "b5663cf01e7917aae5e25933cce3c4be"
+    },
+    {
+      "name": "Socios8.zip",
+      "size_bytes": 49447177,
+      "size_mb": 47.16,
+      "modified": "Tue, 13 Oct 2026 22:09:21 GMT",
+      "etag": "c6f21ad047f9344a481f61f11bf50b34"
+    },
+    {
+      "name": "Socios9.zip",
+      "size_bytes": 49114756,
+      "size_mb": 46.84,
+      "modified": "Tue, 13 Oct 2026 22:09:25 GMT",
+      "etag": "5e046a3f60fea110c428b47ecb216d4c"
+    }
+  ],
+  "total_size_bytes": 7808752942
+}
