@@ -321,7 +321,7 @@ O endpoint `/api/cnpj/:cnpj` devolve um `passaporte` com fatos, eventos datados,
 
 Contatos repetidos são modelados como **hubs** (um nó de contato ligado a várias empresas), não como pares empresa–empresa. Um contato que aparece em muitas empresas é marcado como hub e pode representar uma contabilidade, escritório, coworking ou grupo econômico.
 
-O grafo exibe o nome em todos os nós. O layout é **radial por camadas**, sempre expandindo para fora do centro: a **primeira camada** é o hub e as empresas diretamente ligadas; a **segunda camada** (roxo) mostra sócios dessas empresas e as **camadas seguintes** (rosa) mostram as outras empresas em que esses sócios participam. Cada empresa continua clicável para abrir a rede completa dela. O grafo permite arrastar nós, mover o pano e aplicar zoom com **Ctrl/Cmd + scroll**; o scroll normal continua rolando a página. O mapa usa `cooperativeGestures` pelo mesmo motivo, e a lista de hubs não tem rolagem interna.
+O grafo exibe o nome em todos os nós. O layout é **radial por camadas**, sempre expandindo para fora do centro: a **primeira camada** é o hub e as empresas diretamente ligadas; a **segunda camada** (roxo) mostra sócios dessas empresas e as **camadas seguintes** (rosa) mostram as outras empresas em que esses sócios participam. Cada empresa continua clicável para abrir a rede completa dela. O grafo permite arrastar nós, mover o pano e aplicar zoom com **Ctrl/Cmd + scroll**; o scroll normal continua rolando a página. O botão **Expandir** abre o grafo em tela cheia. O mapa usa `cooperativeGestures` pelo mesmo motivo, e a lista de hubs mostra 8 redes por vez com **Ver mais**, sem rolagem interna.
 
 ### Buscas salvas
 

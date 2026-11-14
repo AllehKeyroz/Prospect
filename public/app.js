@@ -23,6 +23,7 @@ const state = {
   hubPending: false,
   hubToken: 0,
   hubs: [],
+  hubDisplayLimit: 8,
   searchTimer: null,
   mapTimer: null,
   dashboardTimer: null,
@@ -472,6 +473,7 @@ function setView(view, updateHash = true) {
       if (!state.mapFitted) fitMapToBrazil();
     }, 80);
   }
+  if (view !== 'rede') setGraphExpanded(false);
   if (view === 'search' && !state.loading && !resultsBody.querySelector('tr[data-cnpj]')) {
     void search({ resetPage: true });
   }
@@ -1853,6 +1855,29 @@ function redrawGraphGeometry() {
   }
 }
 
+function setGraphExpanded(expanded) {
+  const panel = document.querySelector('.network-graph-panel');
+  if (!panel) return;
+  panel.classList.toggle('is-expanded', expanded);
+  document.body.classList.toggle('graph-expanded', expanded);
+  const button = $('network-expand');
+  if (button) {
+    button.textContent = expanded ? 'Fechar' : 'Expandir';
+    button.setAttribute('aria-expanded', String(expanded));
+  }
+  if (expanded) {
+    setTimeout(() => {
+      if (state.network) renderNetworkGraph(state.network);
+      state.networkMap?.resize();
+    }, 60);
+  } else {
+    setTimeout(() => {
+      if (state.network) renderNetworkGraph(state.network);
+      state.networkMap?.resize();
+    }, 60);
+  }
+}
+
 function renderNetworkGraph(data) {
   const container = $('network-graph');
   if (!container) return;
@@ -2238,7 +2263,7 @@ function hubFilterParams() {
   const params = new URLSearchParams();
   params.set('tipo', $('hub-tipo').value);
   params.set('min_empresas', $('hub-min').value);
-  params.set('limit', '24');
+  params.set('limit', '60');
   const uf = $('hub-uf').value;
   if (uf) params.set('uf', uf);
   const cnae = $('hub-cnae').value;
@@ -2261,6 +2286,7 @@ async function loadHubs() {
     const payload = await fetchJson(`/api/rede/hubs?${hubFilterParams().toString()}`);
     if (token !== state.hubToken) return;
     state.hubs = payload.data ?? [];
+    state.hubDisplayLimit = 8;
     renderHubs(state.hubs);
   } catch (error) {
     console.error(error);
@@ -2285,6 +2311,7 @@ function renderHubs(hubs) {
       '<p class="muted small">Nenhum hub com esses filtros. Reduza o mínimo de empresas ou limpe a UF/CNAE.</p>';
     return;
   }
+  const visible = hubs.slice(0, state.hubDisplayLimit);
   container.innerHTML = `
     <table class="hub-table">
       <thead>
@@ -2299,7 +2326,7 @@ function renderHubs(hubs) {
         </tr>
       </thead>
       <tbody>
-        ${hubs
+        ${visible
           .map((hub) => {
             const tipo = HUB_TYPE_LABEL[hub.tipo] ?? hub.tipo;
             const exemplo = [hub.exemplo_razao_social, hub.exemplo_uf].filter(Boolean).join(' · ');
@@ -2319,7 +2346,15 @@ function renderHubs(hubs) {
           })
           .join('')}
       </tbody>
-    </table>`;
+    </table>
+    <div class="hub-list-footer">
+      <span class="muted small">${visible.length} de ${hubs.length} redes</span>
+      ${
+        visible.length < hubs.length
+          ? '<button type="button" class="btn btn-small" data-hub-more>Ver mais</button>'
+          : ''
+      }
+    </div>`;
 }
 
 async function loadHub(tipo, valor) {
@@ -3258,6 +3293,11 @@ function wireEvents() {
     if (state.network) renderNetworkGraph(state.network);
   });
 
+  $('network-expand').addEventListener('click', () => {
+    const panel = document.querySelector('.network-graph-panel');
+    setGraphExpanded(!panel?.classList.contains('is-expanded'));
+  });
+
   $('network-map-reset').addEventListener('click', () => {
     if (!state.networkMap) return;
     state.networkMap.fitBounds(
@@ -3275,6 +3315,12 @@ function wireEvents() {
   $('hub-q').addEventListener('input', () => debounce('hubTimer', () => void loadHubs(), 400));
 
   $('hub-list').addEventListener('click', (event) => {
+    const more = event.target.closest('[data-hub-more]');
+    if (more) {
+      state.hubDisplayLimit += 8;
+      renderHubs(state.hubs);
+      return;
+    }
     const row = event.target.closest('.hub-item[data-tipo][data-valor]');
     if (row) void loadHub(row.dataset.tipo, row.dataset.valor);
   });
@@ -3357,7 +3403,12 @@ function wireEvents() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeAllSelects();
-      if ($('detail').open) $('detail').close();
+      if ($('detail').open) {
+        $('detail').close();
+        return;
+      }
+      const panel = document.querySelector('.network-graph-panel');
+      if (panel?.classList.contains('is-expanded')) setGraphExpanded(false);
     }
   });
 }
