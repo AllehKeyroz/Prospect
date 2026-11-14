@@ -838,28 +838,29 @@ tbody tr:last-child td { border-bottom: none; }
 .network-discovery-filters .field label { font-size: 9px; }
 .network-discovery-filters .field input,
 .network-discovery-filters .field select { padding: 6px 8px; font-size: 11px; }
-.hub-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  max-height: 250px;
-  overflow: auto;
-  margin-top: 12px;
+.hub-list { margin-top: 12px; max-height: 330px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+.hub-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.hub-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #f5f8f9;
+  border-bottom: 1px solid var(--line);
 }
-.hub-card {
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 10px;
-  background: #fbfcfd;
-  cursor: pointer;
-  min-width: 0;
-}
-.hub-card:hover { border-color: var(--brand); background: #f3fafa; }
-.hub-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.hub-card strong { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-card .hub-count { color: var(--brand); font-size: 10px; font-weight: 800; white-space: nowrap; }
-.hub-card p { margin: 4px 0 0; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hub-card .hub-type { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.hub-table td { padding: 9px 10px; border-bottom: 1px solid #edf2f4; vertical-align: middle; }
+.hub-table tr:last-child td { border-bottom: 0; }
+.hub-item { cursor: pointer; }
+.hub-item:hover td { background: #f3fafa; }
+.hub-name { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--brand); }
+.hub-number { text-align: right; font-variant-numeric: tabular-nums; }
+.hub-example { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 
 .network-layout {
   display: grid;
@@ -1029,7 +1030,7 @@ tbody tr:last-child td { border-bottom: none; }
   .network-discovery-head { flex-direction: column; }
   .network-discovery-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
   .network-discovery-filters .field-wide { grid-column: span 2; }
-  .hub-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hub-example, .hub-table th:nth-child(7) { display: none; }
   .network-layout { grid-template-columns: 1fr; }
   .network-graph { height: 720px; }
   .coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1069,7 +1070,8 @@ tbody tr:last-child td { border-bottom: none; }
   .network-graph-head { flex-direction: column; }
   .network-discovery-filters { grid-template-columns: 1fr 1fr; }
   .network-discovery-filters .field-wide { grid-column: span 2; }
-  .hub-list { grid-template-columns: 1fr; }
+  .hub-table { min-width: 700px; }
+  .hub-name { max-width: 240px; }
   .coverage-grid, .coverage-validation, .data-method-grid, .passport-facts { grid-template-columns: 1fr; }
 }
 

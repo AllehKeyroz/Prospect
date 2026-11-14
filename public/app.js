@@ -2271,25 +2271,41 @@ function renderHubs(hubs) {
       '<p class="muted small">Nenhum hub com esses filtros. Reduza o mínimo de empresas ou limpe a UF/CNAE.</p>';
     return;
   }
-  container.innerHTML = hubs
-    .map((hub) => {
-      const tipo = HUB_TYPE_LABEL[hub.tipo] ?? hub.tipo;
-      const exemplo = [hub.exemplo_razao_social, hub.exemplo_uf].filter(Boolean).join(' · ');
-      return `<article class="hub-card" data-tipo="${escapeHtml(hub.tipo)}" data-valor="${escapeHtml(
-        hub.valor,
-      )}" data-rotulo="${escapeHtml(hub.rotulo)}">
-        <header>
-          <strong title="${escapeHtml(hub.rotulo)}">${escapeHtml(hub.rotulo)}</strong>
-          <span class="hub-count">${fmtNumber(hub.empresas)} empresas</span>
-        </header>
-        <div class="hub-type">${escapeHtml(tipo)} · ${fmtNumber(hub.ufs)} UF(s) · ${fmtNumber(
-          hub.cnaes,
-        )} CNAE(s)</div>
-        <p>${fmtNumber(hub.ativas)} ativas · ${fmtMoney(hub.capital_somado)} capital somado</p>
-        <p title="${escapeHtml(exemplo)}">${escapeHtml(exemplo || 'Sem empresa de exemplo')}</p>
-      </article>`;
-    })
-    .join('');
+  container.innerHTML = `
+    <table class="hub-table">
+      <thead>
+        <tr>
+          <th>Rede identificada</th>
+          <th>Tipo</th>
+          <th>Empresas</th>
+          <th>Ativas</th>
+          <th>UFs</th>
+          <th>CNAEs</th>
+          <th>Exemplo</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${hubs
+          .map((hub) => {
+            const tipo = HUB_TYPE_LABEL[hub.tipo] ?? hub.tipo;
+            const exemplo = [hub.exemplo_razao_social, hub.exemplo_uf].filter(Boolean).join(' · ');
+            return `<tr class="hub-item" data-tipo="${escapeHtml(hub.tipo)}" data-valor="${escapeHtml(
+              hub.valor,
+            )}" data-rotulo="${escapeHtml(hub.rotulo)}">
+              <td class="hub-name" title="${escapeHtml(hub.rotulo)}">${escapeHtml(hub.rotulo)}</td>
+              <td>${escapeHtml(tipo)}</td>
+              <td class="hub-number">${fmtNumber(hub.empresas)}</td>
+              <td class="hub-number">${fmtNumber(hub.ativas)}</td>
+              <td class="hub-number">${fmtNumber(hub.ufs)}</td>
+              <td class="hub-number">${fmtNumber(hub.cnaes)}</td>
+              <td class="hub-example" title="${escapeHtml(exemplo)}">${escapeHtml(
+                exemplo || '—',
+              )}</td>
+            </tr>`;
+          })
+          .join('')}
+      </tbody>
+    </table>`;
 }
 
 async function loadHub(tipo, valor) {
@@ -3245,8 +3261,8 @@ function wireEvents() {
   $('hub-q').addEventListener('input', () => debounce('hubTimer', () => void loadHubs(), 400));
 
   $('hub-list').addEventListener('click', (event) => {
-    const card = event.target.closest('.hub-card[data-tipo][data-valor]');
-    if (card) void loadHub(card.dataset.tipo, card.dataset.valor);
+    const row = event.target.closest('.hub-item[data-tipo][data-valor]');
+    if (row) void loadHub(row.dataset.tipo, row.dataset.valor);
   });
 
   $('network-suggestions').addEventListener('click', (event) => {
