@@ -59,6 +59,30 @@ describe('buildWhere', () => {
     const result = buildWhere({ ...baseFilters, cnpj: '00000000' });
     expect(result.sql).toContain('cnpj_base = $cnpj_base');
   });
+
+  it('busca CNAE por nome', () => {
+    const result = buildWhere({ ...baseFilters, cnae: 'restaurante' });
+    expect(result.sql).toContain('dim_cnae');
+    expect(result.sql).toContain('$cnae_text');
+    expect(result.params.cnae_text).toBe('%restaurante%');
+  });
+
+  it('filtra capital máximo e número de sócios', () => {
+    const result = buildWhere({
+      ...baseFilters,
+      capital_max: 500000,
+      socios_min: 2,
+      socios_max: 5,
+    });
+    expect(result.sql).toContain('capital_social <= $capital_max');
+    expect(result.sql).toContain('socios_count >= $socios_min');
+    expect(result.sql).toContain('socios_count <= $socios_max');
+    expect(result.params).toMatchObject({
+      capital_max: 500000,
+      socios_min: 2,
+      socios_max: 5,
+    });
+  });
 });
 
 describe('query builders', () => {

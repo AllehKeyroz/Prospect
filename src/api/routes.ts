@@ -5,6 +5,7 @@ import { formatCnpj, isValidCnpj, normalizeCnpj } from '../lib/cnpj.js';
 import { toCsvLine } from '../lib/text.js';
 import {
   buildCountQuery,
+  buildDashboardQueries,
   buildListQuery,
   buildResumoQuery,
   buildStatsQuery,
@@ -12,7 +13,9 @@ import {
 } from './queryBuilder.js';
 import {
   cnpjParamsSchema,
+  dashboardSchema,
   exportSchema,
+  municipiosQuerySchema,
   searchSchema,
   statsSchema,
 } from './schemas.js';
@@ -30,6 +33,16 @@ function asNullableNumber(value: unknown): number | null {
 
 function metaToObject(rows: Array<{ key: string; value: string }>): Record<string, string> {
   return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+}
+
+function dashboardRows(
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.map((row) => ({
+    ...row,
+    total: asNumber(row.total),
+    ...(row.ordem !== undefined ? { ordem: asNumber(row.ordem) } : {}),
+  }));
 }
 
 function csvValue(value: unknown): string {
@@ -129,6 +142,91 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get('/api/municipios', async (request, reply) => {
+    const parsed = municipiosQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Informe a UF com 2 letras',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const rows = await query<Record<string, unknown>>(
+      `SELECT municipio_codigo AS codigo,
+              any_value(municipio_nome) AS nome,
+              count(*) AS total
+       FROM estabelecimentos_busca
+       WHERE uf = $uf
+         AND municipio_codigo IS NOT NULL
+         AND municipio_codigo <> ''
+       GROUP BY 1
+       ORDER BY 2`,
+      { uf: parsed.data.uf },
+    );
+
+    return {
+      uf: parsed.data.uf,
+      data: rows.map((row) => ({
+        codigo: row.codigo,
+        nome: row.nome,
+        total: asNumber(row.total),
+      })),
+    };
+  });
+
+  app.get('/api/dashboard', async (request, reply) => {
+    const parsed = dashboardSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const queries = buildDashboardQueries(parsed.data);
+    const [
+      totaisRow,
+      situacoes,
+      portes,
+      ufs,
+      cnaes,
+      municipios,
+      idades,
+      capital,
+      socios,
+      aberturas,
+    ] = await Promise.all([
+      queryOne<Record<string, unknown>>(queries.totais.sql, queries.totais.params),
+      query<Record<string, unknown>>(queries.situacoes.sql, queries.situacoes.params),
+      query<Record<string, unknown>>(queries.portes.sql, queries.portes.params),
+      query<Record<string, unknown>>(queries.ufs.sql, queries.ufs.params),
+      query<Record<string, unknown>>(queries.cnaes.sql, queries.cnaes.params),
+      query<Record<string, unknown>>(queries.municipios.sql, queries.municipios.params),
+      query<Record<string, unknown>>(queries.idades.sql, queries.idades.params),
+      query<Record<string, unknown>>(queries.capital.sql, queries.capital.params),
+      query<Record<string, unknown>>(queries.socios.sql, queries.socios.params),
+      query<Record<string, unknown>>(queries.aberturas.sql, queries.aberturas.params),
+    ]);
+
+    const totais = Object.fromEntries(
+      Object.entries(totaisRow ?? {}).map(([key, value]) => [key, asNumber(value)]),
+    );
+
+    return {
+      filtros: parsed.data,
+      totais,
+      situacoes: dashboardRows(situacoes),
+      portes: dashboardRows(portes),
+      ufs: dashboardRows(ufs),
+      cnaes: dashboardRows(cnaes),
+      municipios: dashboardRows(municipios),
+      idades: dashboardRows(idades),
+      capital: dashboardRows(capital),
+      socios: dashboardRows(socios),
+      aberturas: dashboardRows(aberturas),
+    };
+  });
+
   app.get('/api/empresas', async (request, reply) => {
     const parsed = searchSchema.safeParse(request.query);
     if (!parsed.success) {
@@ -158,6 +256,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         cnpj_formatado: formatCnpj(String(row.cnpj ?? '')),
         capital_social: asNullableNumber(row.capital_social),
         idade_anos: asNullableNumber(row.idade_anos),
+        socios_count: asNumber(row.socios_count),
       })),
       total,
       page: filters.page,
@@ -169,6 +268,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         mais_3_anos: asNumber(resumo.mais_3_anos),
         com_email: asNumber(resumo.com_email),
         com_telefone: asNumber(resumo.com_telefone),
+        com_socios: asNumber(resumo.com_socios),
       },
       filters,
     };
@@ -291,6 +391,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         idade_anos: asNullableNumber(row.idade_anos),
       })),
       socios: socioRows,
+      socios_count: socioRows.length,
       simples: simplesRows[0] ?? null,
     };
   });
@@ -335,6 +436,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       'DDD 2',
       'Telefone 2',
       'Capital social',
+      'Nº de sócios',
       'Porte',
       'Natureza jurídica',
       'Simples',
@@ -366,6 +468,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             row.ddd2 ?? '',
             row.telefone2 ?? '',
             csvValue(row.capital_social),
+            row.socios_count ?? '',
             row.porte_descricao ?? '',
             row.natureza_descricao ?? '',
             row.opcao_simples ?? '',

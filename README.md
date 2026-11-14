@@ -18,12 +18,15 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
 - API em **TypeScript/Node** com Fastify.
 - UI em HTML/CSS/JS (sem build de frontend) com:
   - busca por razão social, nome fantasia ou CNPJ;
-  - filtros de UF, CNAE, situação, porte, idade mínima, capital mínimo;
+  - filtros de UF, cidade, CNAE, situação, porte, idade mínima, capital mínimo e máximo, número de sócios;
+  - **dropdowns pesquisáveis** para CNAE (código ou nome), cidade e UF;
   - filtros de Simples, MEI, com e-mail, com telefone, somente matriz;
+  - contato separado em **e-mail** e **telefone**;
   - cards de resumo;
   - ranking de CNAEs e UFs;
   - ficha cadastral com estabelecimentos, sócios e Simples/MEI;
-  - exportação CSV.
+  - exportação CSV;
+  - **dashboard** com KPIs e gráficos de situação, porte, UFs, CNAEs, cidades, aberturas, idade, capital e número de sócios.
 - Testes unitários de CNPJ (numérico e alfanumérico) e do query builder.
 
 ### Números do teste local
@@ -132,8 +135,10 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | `GET` | `/health` | Saúde, snapshot e contagens |
 | `GET` | `/api/meta` | Metadados do banco |
 | `GET` | `/api/opcoes` | UFs, CNAEs, naturezas, situações e portes |
+| `GET` | `/api/municipios?uf=SP` | Cidades de uma UF (código RFB, nome e total) |
 | `GET` | `/api/empresas` | Listagem com filtros, paginação e resumo |
 | `GET` | `/api/estatisticas` | Agregações por UF, CNAE, situação, porte, município ou natureza |
+| `GET` | `/api/dashboard` | KPIs e séries para o dashboard |
 | `GET` | `/api/cnpj/:cnpj` | Ficha 360º (aceita 8 ou 14 caracteres) |
 | `GET` | `/api/export.csv` | Exportação CSV com os mesmos filtros |
 
@@ -149,8 +154,17 @@ curl "http://localhost:3000/api/empresas?q=padaria&situacao=02"
 # Ficha de uma empresa (matriz ou filial)
 curl "http://localhost:3000/api/cnpj/00000000000191"
 
+# Busca por nome do CNAE
+curl "http://localhost:3000/api/empresas?cnae=restaurante&situacao=02"
+
+# Cidades de uma UF
+curl "http://localhost:3000/api/municipios?uf=SP"
+
 # Top CNAEs
 curl "http://localhost:3000/api/estatisticas?situacao=02&idade_min=3&group_by=cnae&limit=10"
+
+# Dashboard
+curl "http://localhost:3000/api/dashboard?situacao=02&idade_min=3&uf=SP"
 
 # Exportar CSV
 curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min=3&uf=SP"
@@ -164,7 +178,7 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
 | `cnpj` | `00000000000191` ou `00000000` | 14 ou 8 caracteres; aceita pontuação |
 | `uf` | `SP` | 2 letras |
 | `municipio` | `7107` ou `São Paulo` | Código RFB ou nome |
-| `cnae` | `5611201` | Principal ou secundária; 4–7 dígitos |
+| `cnae` | `5611201` ou `restaurante` | Código (4–7 dígitos) ou nome do CNAE; busca principal e secundária |
 | `situacao` | `02` | `01` nula, `02` ativa, `03` suspensa, `04` inapta, `08` baixada |
 | `porte` | `01` | `01` micro, `03` pequena, `05` demais |
 | `natureza` | `2062` | Código de natureza jurídica |
@@ -172,6 +186,8 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
 | `idade_max` | `20` | Anos desde a abertura |
 | `capital_min` | `100000` | Capital social mínimo |
 | `capital_max` | `5000000` | Capital social máximo |
+| `socios_min` | `2` | Número mínimo de sócios |
+| `socios_max` | `10` | Número máximo de sócios |
 | `simples` | `true` | Somente optantes do Simples |
 | `mei` | `true` | Somente MEI |
 | `com_email` | `true` | Somente com e-mail |
@@ -200,6 +216,7 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
       "municipio_nome": "BRASILIA",
       "email": "...",
       "capital_social": 120000000000,
+      "socios_count": 3,
       "is_ativa": true,
       "is_mais_3_anos": true
     }
@@ -213,7 +230,8 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
     "ativas": 7554,
     "mais_3_anos": 7554,
     "com_email": 3324,
-    "com_telefone": 4948
+    "com_telefone": 4948,
+    "com_socios": 3456
   }
 }
 ```
@@ -245,6 +263,7 @@ A tabela `estabelecimentos_busca` já traz:
 - descrição de CNAE, município e natureza;
 - situação/porte/matriz traduzidos;
 - `idade_anos`, `is_ativa`, `is_mais_3_anos`;
+- `socios_count` (quantidade de sócios da empresa);
 - flags de Simples e MEI.
 
 ---

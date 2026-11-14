@@ -23,8 +23,8 @@ const optionalUf = z.preprocess(
 );
 
 const optionalCnae = z.preprocess(
-  (value) => (value === '' || value === undefined ? undefined : String(value).replace(/\D/g, '')),
-  z.string().min(4).max(7).optional(),
+  (value) => (value === '' || value === undefined ? undefined : String(value).trim()),
+  z.string().min(1).max(120).optional(),
 );
 
 const optionalCnpj = z.preprocess(
@@ -58,6 +58,8 @@ export const filterShape = {
   idade_max: optionalNumber(0, 150),
   capital_min: optionalNumber(0),
   capital_max: optionalNumber(0),
+  socios_min: optionalNumber(0, 10_000),
+  socios_max: optionalNumber(0, 10_000),
   simples: optionalBoolean,
   mei: optionalBoolean,
   com_email: optionalBoolean,
@@ -73,6 +75,7 @@ export const sortValues = [
   'cnae',
   'situacao',
   'idade',
+  'socios',
 ] as const;
 
 export const searchSchema = z.object({
@@ -100,6 +103,17 @@ export const exportSchema = z.object({
   ...filterShape,
 });
 
+export const dashboardSchema = z.object({
+  ...filterShape,
+});
+
+export const municipiosQuerySchema = z.object({
+  uf: z.preprocess(
+    (value) => String(value ?? '').toUpperCase(),
+    z.string().length(2),
+  ),
+});
+
 export const cnpjParamsSchema = z.object({
   cnpj: z.string().min(8).max(20),
 });
@@ -107,3 +121,4 @@ export const cnpjParamsSchema = z.object({
 export type SearchInput = z.infer<typeof searchSchema>;
 export type StatsInput = z.infer<typeof statsSchema>;
 export type ExportInput = z.infer<typeof exportSchema>;
+export type DashboardInput = z.infer<typeof dashboardSchema>;

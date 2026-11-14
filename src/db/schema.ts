@@ -232,6 +232,7 @@ SELECT
   emp.capital_social,
   emp.porte,
   emp.ente_federativo,
+  coalesce(sc.socios_count, 0) AS socios_count,
   coalesce(s.opcao_simples, 'N') AS opcao_simples,
   coalesce(s.opcao_mei, 'N') AS opcao_mei,
   c.descricao AS cnae_descricao,
@@ -265,6 +266,11 @@ SELECT
 FROM estabelecimentos e
 LEFT JOIN empresas emp ON emp.cnpj_base = e.cnpj_base
 LEFT JOIN simples s ON s.cnpj_base = e.cnpj_base
+LEFT JOIN (
+  SELECT cnpj_base, count(*) AS socios_count
+  FROM socios
+  GROUP BY 1
+) sc ON sc.cnpj_base = e.cnpj_base
 LEFT JOIN dim_cnae c ON c.codigo = e.cnae_principal
 LEFT JOIN dim_municipio m ON m.codigo = e.municipio_codigo
 LEFT JOIN dim_natureza n ON n.codigo = emp.natureza_juridica

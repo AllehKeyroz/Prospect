@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0d5c63" />
     <title>CNPJ Prospect — Análise de mercado e concorrentes</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -22,139 +24,284 @@
     </header>
 
     <main class="container">
-      <section class="panel filters-panel">
-        <form id="filters" autocomplete="off">
-          <div class="field field-wide">
-            <label for="q">Busca livre</label>
-            <input
-              id="q"
-              name="q"
-              type="search"
-              placeholder="Razão social, nome fantasia ou CNPJ"
-            />
-          </div>
+      <nav class="tabs" aria-label="Navegação principal">
+        <button type="button" class="tab active" data-view="search">Busca</button>
+        <button type="button" class="tab" data-view="dashboard">Dashboard</button>
+      </nav>
 
-          <div class="field">
-            <label for="uf">UF</label>
-            <select id="uf" name="uf">
-              <option value="">Todas</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="cnae">CNAE principal</label>
-            <select id="cnae" name="cnae">
-              <option value="">Todos</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="situacao">Situação</label>
-            <select id="situacao" name="situacao">
-              <option value="02" selected>Ativa</option>
-              <option value="">Todas</option>
-              <option value="08">Baixada</option>
-              <option value="04">Inapta</option>
-              <option value="03">Suspensa</option>
-              <option value="01">Nula</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="porte">Porte</label>
-            <select id="porte" name="porte">
-              <option value="">Todos</option>
-              <option value="01">Microempresa</option>
-              <option value="03">Empresa de Pequeno Porte</option>
-              <option value="05">Demais</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="idade_min">Idade mínima (anos)</label>
-            <input id="idade_min" name="idade_min" type="number" min="0" max="150" value="3" />
-          </div>
-
-          <div class="field">
-            <label for="capital_min">Capital social mín. (R$)</label>
-            <input id="capital_min" name="capital_min" type="number" min="0" step="1000" placeholder="0" />
-          </div>
-
-          <div class="field checks">
-            <label class="check"><input type="checkbox" id="simples" name="simples" /> Somente Simples</label>
-            <label class="check"><input type="checkbox" id="mei" name="mei" /> Somente MEI</label>
-            <label class="check"><input type="checkbox" id="com_email" name="com_email" /> Com e-mail</label>
-            <label class="check"><input type="checkbox" id="com_telefone" name="com_telefone" /> Com telefone</label>
-            <label class="check"><input type="checkbox" id="matriz" name="matriz" /> Somente matriz</label>
-          </div>
-
-          <div class="actions">
-            <button type="submit" class="btn btn-primary">Buscar</button>
-            <button type="button" class="btn" id="clear">Limpar</button>
-            <button type="button" class="btn btn-ghost" id="export">Exportar CSV</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="summary" id="summary">
-        <article class="card"><span>Resultados</span><strong id="sum-total">—</strong></article>
-        <article class="card"><span>Ativas</span><strong id="sum-ativas">—</strong></article>
-        <article class="card"><span>Mais de 3 anos</span><strong id="sum-mais3">—</strong></article>
-        <article class="card"><span>Com e-mail</span><strong id="sum-email">—</strong></article>
-      </section>
-
-      <div class="layout">
-        <section class="panel results-panel">
-          <div class="results-head">
-            <div>
-              <h2>Empresas</h2>
-              <p id="result-info">Informe os filtros e clique em buscar.</p>
+      <section id="view-search" class="view">
+        <section class="panel filters-panel">
+          <form id="filters" autocomplete="off">
+            <div class="filters-grid">
+            <div class="field field-search">
+              <label for="q">Busca livre</label>
+              <input
+                id="q"
+                name="q"
+                type="search"
+                placeholder="Razão social, nome fantasia ou CNPJ"
+              />
             </div>
-            <div class="pagination" id="pagination-top"></div>
-          </div>
 
-          <div class="table-wrap">
-            <table id="results">
-              <thead>
-                <tr>
-                  <th>CNPJ</th>
-                  <th>Empresa</th>
-                  <th>Atividade</th>
-                  <th>Local</th>
-                  <th>Situação</th>
-                  <th>Abertura</th>
-                  <th>Capital</th>
-                  <th>Contato</th>
-                </tr>
-              </thead>
-              <tbody id="results-body">
-                <tr><td colspan="8" class="empty">Carregando…</td></tr>
-              </tbody>
-            </table>
-          </div>
+            <div class="field">
+              <label for="uf">UF</label>
+              <select id="uf" name="uf" data-searchable="true" data-search-placeholder="Pesquisar UF">
+                <option value="">Todas</option>
+              </select>
+            </div>
 
-          <div class="pagination pagination-bottom" id="pagination-bottom"></div>
+            <div class="field">
+              <label for="municipio">Cidade</label>
+              <select id="municipio" name="municipio" disabled data-searchable="true" data-search-placeholder="Pesquisar cidade">
+                <option value="">Selecione a UF</option>
+              </select>
+            </div>
+
+            <div class="field field-wide">
+              <label for="cnae">CNAE principal</label>
+              <select
+                id="cnae"
+                name="cnae"
+                data-searchable="true"
+                data-search-placeholder="Código ou nome do CNAE"
+              >
+                <option value="">Todos</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="situacao">Situação</label>
+              <select id="situacao" name="situacao">
+                <option value="02" selected>Ativa</option>
+                <option value="">Todas</option>
+                <option value="08">Baixada</option>
+                <option value="04">Inapta</option>
+                <option value="03">Suspensa</option>
+                <option value="01">Nula</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="porte">Porte</label>
+              <select id="porte" name="porte">
+                <option value="">Todos</option>
+                <option value="01">Microempresa</option>
+                <option value="03">Empresa de Pequeno Porte</option>
+                <option value="05">Demais</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="idade_min">Idade mín. (anos)</label>
+              <input id="idade_min" name="idade_min" type="number" min="0" max="150" value="3" />
+            </div>
+
+            <div class="field">
+              <label for="capital_min">Capital mín. (R$)</label>
+              <input id="capital_min" name="capital_min" type="number" min="0" step="1000" placeholder="0" />
+            </div>
+
+            <div class="field">
+              <label for="capital_max">Capital máx. (R$)</label>
+              <input id="capital_max" name="capital_max" type="number" min="0" step="1000" placeholder="Sem limite" />
+            </div>
+
+            <div class="field">
+              <label for="socios_min">Sócios (mín.)</label>
+              <input id="socios_min" name="socios_min" type="number" min="0" max="10000" placeholder="0" />
+            </div>
+
+            <div class="field">
+              <label for="socios_max">Sócios (máx.)</label>
+              <input id="socios_max" name="socios_max" type="number" min="0" max="10000" placeholder="Sem limite" />
+            </div>
+
+            </div>
+
+            <div class="filters-toolbar">
+              <div class="checks">
+                <label class="check"><input type="checkbox" id="simples" name="simples" /> Somente Simples</label>
+                <label class="check"><input type="checkbox" id="mei" name="mei" /> Somente MEI</label>
+                <label class="check"><input type="checkbox" id="com_email" name="com_email" /> Com e-mail</label>
+                <label class="check"><input type="checkbox" id="com_telefone" name="com_telefone" /> Com telefone</label>
+                <label class="check"><input type="checkbox" id="matriz" name="matriz" /> Somente matriz</label>
+              </div>
+
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">Buscar</button>
+                <button type="button" class="btn" id="clear">Limpar</button>
+                <button type="button" class="btn btn-ghost" id="export">Exportar CSV</button>
+              </div>
+            </div>
+          </form>
         </section>
 
-        <aside class="sidebar">
-          <section class="panel side-panel">
-            <h3>Top CNAEs</h3>
-            <div id="stats-cnae" class="stats"><p class="muted">—</p></div>
+        <section class="summary" id="summary">
+          <article class="card"><span>Resultados</span><strong id="sum-total">—</strong></article>
+          <article class="card"><span>Ativas</span><strong id="sum-ativas">—</strong></article>
+          <article class="card"><span>Mais de 3 anos</span><strong id="sum-mais3">—</strong></article>
+          <article class="card"><span>Com e-mail</span><strong id="sum-email">—</strong></article>
+          <article class="card"><span>Com sócios</span><strong id="sum-socios">—</strong></article>
+        </section>
+
+        <div class="layout">
+          <section class="panel results-panel">
+            <div class="results-head">
+              <div>
+                <h2>Empresas</h2>
+                <p id="result-info">Informe os filtros e clique em buscar.</p>
+              </div>
+              <div class="pagination" id="pagination-top"></div>
+            </div>
+
+            <div class="table-wrap">
+              <table id="results">
+                <thead>
+                  <tr>
+                    <th>CNPJ</th>
+                    <th>Empresa</th>
+                    <th>Atividade</th>
+                    <th>Local</th>
+                    <th>Situação</th>
+                    <th>Abertura</th>
+                    <th>Capital</th>
+                    <th>Sócios</th>
+                    <th>E-mail</th>
+                    <th>Telefone</th>
+                  </tr>
+                </thead>
+                <tbody id="results-body">
+                  <tr><td colspan="10" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pagination pagination-bottom" id="pagination-bottom"></div>
           </section>
-          <section class="panel side-panel">
+
+          <aside class="sidebar">
+            <section class="panel side-panel">
+              <h3>Top CNAEs</h3>
+              <div id="stats-cnae" class="stats"><p class="muted">—</p></div>
+            </section>
+            <section class="panel side-panel">
+              <h3>Top UFs</h3>
+              <div id="stats-uf" class="stats"><p class="muted">—</p></div>
+            </section>
+            <section class="panel side-panel note">
+              <h3>Sobre a amostra</h3>
+              <p>
+                Esta carga inicial usa uma amostra do shard 1 (CNPJ base
+                00000000–04631960) do snapshot <strong id="note-snapshot">2026-10</strong>.
+                Os totais servem para validar a aplicação; não representam o Brasil.
+              </p>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-dashboard" class="view" hidden>
+        <section class="panel dashboard-filters-panel">
+          <form id="dashboard-filters" class="dashboard-filter-grid" autocomplete="off">
+            <div class="field">
+              <label for="dash-uf">UF</label>
+              <select id="dash-uf" name="uf" data-searchable="true" data-search-placeholder="Pesquisar UF">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="dash-municipio">Cidade</label>
+              <select id="dash-municipio" name="municipio" disabled data-searchable="true" data-search-placeholder="Pesquisar cidade">
+                <option value="">Selecione a UF</option>
+              </select>
+            </div>
+            <div class="field field-wide">
+              <label for="dash-cnae">CNAE</label>
+              <select
+                id="dash-cnae"
+                name="cnae"
+                data-searchable="true"
+                data-search-placeholder="Código ou nome do CNAE"
+              >
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="dash-situacao">Situação</label>
+              <select id="dash-situacao" name="situacao">
+                <option value="">Todas</option>
+                <option value="02">Ativa</option>
+                <option value="08">Baixada</option>
+                <option value="04">Inapta</option>
+                <option value="03">Suspensa</option>
+                <option value="01">Nula</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="dash-idade">Idade mín. (anos)</label>
+              <input id="dash-idade" name="idade_min" type="number" min="0" max="150" value="0" />
+            </div>
+            <div class="field checks">
+              <label class="check"><input type="checkbox" id="dash-simples" name="simples" /> Simples</label>
+              <label class="check"><input type="checkbox" id="dash-mei" name="mei" /> MEI</label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-primary">Aplicar</button>
+              <button type="button" class="btn" id="dash-clear">Limpar</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="kpi-grid" id="dash-kpis">
+          <article class="kpi"><span>Estabelecimentos</span><strong>—</strong></article>
+          <article class="kpi"><span>Empresas</span><strong>—</strong></article>
+          <article class="kpi"><span>Sócios</span><strong>—</strong></article>
+          <article class="kpi"><span>Simples</span><strong>—</strong></article>
+          <article class="kpi"><span>MEI</span><strong>—</strong></article>
+          <article class="kpi"><span>Com e-mail</span><strong>—</strong></article>
+          <article class="kpi"><span>Com telefone</span><strong>—</strong></article>
+          <article class="kpi"><span>Com sócios</span><strong>—</strong></article>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel chart-panel">
+            <h3>Situação cadastral</h3>
+            <div id="chart-situacao" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Porte</h3>
+            <div id="chart-porte" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
             <h3>Top UFs</h3>
-            <div id="stats-uf" class="stats"><p class="muted">—</p></div>
-          </section>
-          <section class="panel side-panel note">
-            <h3>Sobre a amostra</h3>
-            <p>
-              Esta carga inicial usa uma amostra do shard 1 (CNPJ base
-              00000000–04631960) do snapshot <strong id="note-snapshot">2026-10</strong>.
-              Os totais servem para validar a aplicação; não representam o Brasil.
-            </p>
-          </section>
-        </aside>
-      </div>
+            <div id="chart-ufs" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Top CNAEs</h3>
+            <div id="chart-cnaes" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Top cidades</h3>
+            <div id="chart-municipios" class="chart"></div>
+          </article>
+          <article class="panel chart-panel chart-panel-wide">
+            <h3>Aberturas por ano</h3>
+            <div id="chart-aberturas" class="chart chart-line"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Idade das empresas</h3>
+            <div id="chart-idades" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Capital social</h3>
+            <div id="chart-capital" class="chart"></div>
+          </article>
+          <article class="panel chart-panel">
+            <h3>Nº de sócios</h3>
+            <div id="chart-socios" class="chart"></div>
+          </article>
+        </section>
+      </section>
     </main>
 
     <dialog id="detail" class="detail-dialog">
@@ -168,6 +315,8 @@
       </div>
       <div id="detail-content" class="detail-content"></div>
     </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <footer class="footer">
       <p>
