@@ -127,6 +127,7 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | `npm run db:up` | Sobe o PostgreSQL local para desenvolvimento |
 | `npm run db:down` | Para o PostgreSQL local (mantém o volume) |
 | `npm run db:logs` | Acompanha os logs do PostgreSQL local |
+| `npm run db:migrate` | Aplica as migrações pendentes na `DATABASE_URL` |
 | `npm run geo:build` | Baixa/atualiza a malha IBGE e gera os arquivos estáticos do mapa |
 | `npm run history:download-2019` | Baixa o pacote 2019 do Wayback para `data/wayback/2019/` |
 | `npm run history:validate-2019` | Valida o pacote 2019 por amostragem contra o snapshot local |

@@ -19,7 +19,7 @@ npm run dev                 # http://localhost:3000
 - Verification order: `npm run typecheck && npm test && npm run build`. There is no lint script.
 - Single test: `npx vitest run test/queryBuilder.test.ts`.
 - Frontend syntax check: `node --check public/app.js` (there is no frontend build).
-- PostgreSQL foundation: `npm run db:up` (local compose), then `psql "$DATABASE_URL" -f db/migrations/001_init.sql`; see `db/README.md` for EasyPanel.
+- PostgreSQL foundation: `npm run db:up` (local compose), then `npm run db:migrate` (uses `DATABASE_URL`); see `db/README.md` for EasyPanel.
 - Full snapshot: `npm run prepare:snapshot` then `npm run ingest:snapshot`. Implemented but only exercised on small inputs, not the full 7.27 GB / ~26 GB run. Do not present local results as all-Brazil.
 - Historical 2019: `npm run history:download-2019` (20 fixed-width ZIPs, ~5 GB) and `npm run history:validate-2019` (writes `docs/historico/2019-validacao.{json,md}`).
 

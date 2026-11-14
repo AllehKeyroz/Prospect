@@ -56,9 +56,19 @@ postgresql://prospect:prospect_dev@localhost:5433/prospect
 Aplicar o schema:
 
 ```bash
+npm run db:migrate
+```
+
+Ou, se preferir `psql`:
+
+```bash
 psql "postgresql://prospect:prospect_dev@localhost:5433/prospect" \
   -f db/migrations/001_init.sql
 ```
+
+No EasyPanel, rode `npm run db:migrate` no terminal do serviço da aplicação
+(usa a `DATABASE_URL` configurada). O runner registra cada arquivo em
+`app.schema_migrations`, então pode ser executado novamente sem reaplicar.
 
 No Windows, se não houver `psql`, use o terminal do container:
 
