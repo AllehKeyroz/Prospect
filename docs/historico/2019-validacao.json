@@ -1,0 +1,432 @@
+{
+  "generated_at": "2026-11-14T21:09:02.750Z",
+  "source": "Wayback Machine — 200.152.38.155/CNPJ",
+  "capture": "2019-09-25",
+  "local_snapshot": "2026-10",
+  "files": [
+    {
+      "file": "data\\wayback\\2019\\DADOS_ABERTOS_CNPJ_01.zip",
+      "entry": "K3241.K03200DV.D90805.L00001",
+      "total_companies": 1902007,
+      "total_partners": 1846962,
+      "sampled_companies": 5000
+    }
+  ],
+  "sample": {
+    "requested": 5000,
+    "scanned": 5000,
+    "max_company_records": null
+  },
+  "internal_checks": {
+    "invalid_cnpj": 0,
+    "invalid_situacao": 0,
+    "invalid_uf": 85,
+    "invalid_cnae": 0,
+    "invalid_date": 2,
+    "temporal_violation": 51
+  },
+  "coverage": {
+    "matched_full": 81,
+    "matched_base": 343,
+    "pct_full": 1.62,
+    "pct_base": 6.86,
+    "note": "A base local é uma amostra de 50 mil estabelecimentos; o percentual de match não mede a cobertura nacional."
+  },
+  "agreement": {
+    "name_exact": 78,
+    "name_similar": 78,
+    "situation": 73,
+    "opening_date": 81,
+    "cnae": 78,
+    "uf": 81,
+    "pct_name_exact": 96.3,
+    "pct_name_similar": 96.3,
+    "pct_situation": 90.12,
+    "pct_opening_date": 100,
+    "pct_cnae": 96.3,
+    "pct_uf": 100
+  },
+  "distributions": {
+    "by_uf": [
+      [
+        "SP",
+        507763
+      ],
+      [
+        "MG",
+        173389
+      ],
+      [
+        "RS",
+        144577
+      ],
+      [
+        "PR",
+        133871
+      ],
+      [
+        "RJ",
+        131388
+      ],
+      [
+        "GO",
+        117691
+      ],
+      [
+        "SC",
+        98679
+      ],
+      [
+        "BA",
+        94329
+      ],
+      [
+        "DF",
+        75357
+      ],
+      [
+        "CE",
+        66643
+      ],
+      [
+        "PE",
+        54917
+      ],
+      [
+        "MT",
+        53492
+      ],
+      [
+        "MS",
+        38651
+      ],
+      [
+        "MA",
+        33016
+      ],
+      [
+        "ES",
+        28788
+      ]
+    ],
+    "by_situacao": [
+      [
+        "08",
+        1127396
+      ],
+      [
+        "02",
+        442361
+      ],
+      [
+        "04",
+        315714
+      ],
+      [
+        "03",
+        13697
+      ],
+      [
+        "01",
+        2839
+      ]
+    ],
+    "by_opening_year": [
+      [
+        "1986",
+        11640
+      ],
+      [
+        "1987",
+        1991
+      ],
+      [
+        "1988",
+        2184
+      ],
+      [
+        "1989",
+        2132
+      ],
+      [
+        "1990",
+        1575
+      ],
+      [
+        "1991",
+        1778
+      ],
+      [
+        "1992",
+        1269
+      ],
+      [
+        "1993",
+        2000
+      ],
+      [
+        "1994",
+        323748
+      ],
+      [
+        "1995",
+        566210
+      ],
+      [
+        "1996",
+        577204
+      ],
+      [
+        "1997",
+        151467
+      ],
+      [
+        "1998",
+        10064
+      ],
+      [
+        "1999",
+        8694
+      ],
+      [
+        "2000",
+        7773
+      ],
+      [
+        "2001",
+        6919
+      ],
+      [
+        "2002",
+        5714
+      ],
+      [
+        "2003",
+        4862
+      ],
+      [
+        "2004",
+        5228
+      ],
+      [
+        "2005",
+        4866
+      ],
+      [
+        "2006",
+        4182
+      ],
+      [
+        "2007",
+        4457
+      ],
+      [
+        "2008",
+        4843
+      ],
+      [
+        "2009",
+        5036
+      ],
+      [
+        "2010",
+        4524
+      ],
+      [
+        "2011",
+        4574
+      ],
+      [
+        "2012",
+        5078
+      ],
+      [
+        "2013",
+        4227
+      ],
+      [
+        "2014",
+        3442
+      ],
+      [
+        "2015",
+        3018
+      ],
+      [
+        "2016",
+        2670
+      ],
+      [
+        "2017",
+        2801
+      ],
+      [
+        "2018",
+        3003
+      ],
+      [
+        "2019",
+        1471
+      ],
+      [
+        "sem data",
+        2
+      ]
+    ],
+    "by_cnae_prefix": [
+      [
+        "47",
+        729056
+      ],
+      [
+        "56",
+        143155
+      ],
+      [
+        "46",
+        116743
+      ],
+      [
+        "94",
+        96863
+      ],
+      [
+        "45",
+        74159
+      ],
+      [
+        "88",
+        48349
+      ],
+      [
+        "49",
+        40718
+      ],
+      [
+        "14",
+        38642
+      ],
+      [
+        "81",
+        37790
+      ],
+      [
+        "82",
+        37016
+      ],
+      [
+        "74",
+        31359
+      ],
+      [
+        "85",
+        30592
+      ],
+      [
+        "10",
+        29665
+      ],
+      [
+        "86",
+        27060
+      ],
+      [
+        "64",
+        25241
+      ]
+    ]
+  },
+  "divergences": [
+    {
+      "cnpj": "00384655000100",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "ZAMBI EMPORIO LTDA",
+      "uf_2019": "SP",
+      "data_2019": "1995-01-05"
+    },
+    {
+      "cnpj": "00328316000107",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "DARLAN WILLIAM MATTOS REIS",
+      "uf_2019": "MG",
+      "data_2019": "1994-12-05"
+    },
+    {
+      "cnpj": "01478277000197",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "JOAO OSMAR DE GODOI PIRACICABA",
+      "uf_2019": "SP",
+      "data_2019": "1996-10-02"
+    },
+    {
+      "cnpj": "00983707000165",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "LIDERANCA DO PONTAL PRESTADORA DE SERVICOS LIMITADA",
+      "uf_2019": "MG",
+      "data_2019": "1995-12-01"
+    },
+    {
+      "cnpj": "00704015000130",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "ZILDA LOPES CATULIO",
+      "uf_2019": "DF",
+      "data_2019": "1983-05-11"
+    },
+    {
+      "cnpj": "00624219000161",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "DELTA EMPREENDIMENTOS, COMERCIO E SERVICOS DE LIMPEZA E PORTARIA LTDA",
+      "uf_2019": "SP",
+      "data_2019": "1995-05-23"
+    },
+    {
+      "cnpj": "01024805000138",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "ARLETE DAICHMANN",
+      "uf_2019": "RS",
+      "data_2019": "1996-01-22"
+    },
+    {
+      "cnpj": "00933497000109",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "UNIAO DOS PESC.DO PORTO DE MOCAJUTUBA DE PACO DO LUMIAR",
+      "uf_2019": "MA",
+      "data_2019": "1995-11-22"
+    },
+    {
+      "cnpj": "00978140000139",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "ASSOCIACAO BENEFICENTE E CULTURAL SEM FRONTEIRA",
+      "uf_2019": "SP",
+      "data_2019": "1995-10-19"
+    },
+    {
+      "cnpj": "00989828000114",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "CLAUDINA SAMPAIO ARSE",
+      "uf_2019": "RS",
+      "data_2019": "1996-01-08"
+    },
+    {
+      "cnpj": "01604096000160",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "CLIMAP ASSISTENCIA A SAUDE LTDA",
+      "uf_2019": "DF",
+      "data_2019": "1996-12-26"
+    },
+    {
+      "cnpj": "00175067000167",
+      "tipo": "sem_match_no_snapshot_local",
+      "razao_2019": "JOSE JONAS MARQUEZINI",
+      "uf_2019": "MT",
+      "data_2019": "1983-05-06"
+    }
+  ],
+  "limitations": [
+    "Validação por amostragem sobre o arquivo 01; os demais arquivos do pacote precisam ser baixados e validados.",
+    "O layout 2019 é fixed-width de 1.200 caracteres, distinto do CSV moderno da Receita.",
+    "A comparação local usa uma amostra de 50 mil estabelecimentos, não o snapshot oficial completo.",
+    "Divergência de situação entre 2019 e 2026 é esperada (mudança real de cadastro), não erro de chave.",
+    "Nenhum dado de 2019 foi mesclado ao banco; o relatório é apenas de confiança e proveniência."
+  ]
+}

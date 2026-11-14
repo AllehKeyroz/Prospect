@@ -15,7 +15,6 @@ const SORT_MAP: Record<SearchInput['sort'], string> = {
   situacao: 'situacao',
   idade: 'idade_anos',
   socios: 'socios_count',
-  fit: 'fit_score',
 };
 
 function cutoffDate(years: number): string {
@@ -193,17 +192,7 @@ export const LIST_COLUMNS = `
   municipio_ibge, regiao,
   bairro, cep, logradouro, numero, email, ddd1, telefone1, ddd2, telefone2,
   capital_social, porte, porte_descricao, natureza_juridica, natureza_descricao,
-  socios_count, opcao_simples, opcao_mei, matriz_filial_descricao, is_ativa, is_mais_3_anos,
-  (
-    CASE WHEN is_ativa THEN 20 ELSE 0 END
-    + CASE WHEN data_inicio <= current_date - INTERVAL 3 YEAR THEN 15 ELSE 0 END
-    + CASE WHEN email IS NOT NULL AND email <> '' THEN 15 ELSE 0 END
-    + CASE WHEN telefone1 IS NOT NULL AND telefone1 <> '' THEN 15 ELSE 0 END
-    + CASE WHEN capital_social >= 100000 THEN 15 ELSE 0 END
-    + CASE WHEN socios_count > 0 THEN 10 ELSE 0 END
-    + CASE WHEN opcao_simples = 'S' THEN 5 ELSE 0 END
-    + CASE WHEN opcao_mei = 'S' THEN 5 ELSE 0 END
-  ) AS fit_score
+  socios_count, opcao_simples, opcao_mei, matriz_filial_descricao, is_ativa, is_mais_3_anos
 `;
 
 export function buildListQuery(filters: SearchInput): WhereResult {

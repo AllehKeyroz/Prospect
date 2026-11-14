@@ -12,6 +12,7 @@ import {
   MACRO_SQL,
   META_TABLE_SQL,
   MUNICIPIO_IBGE_SQL,
+  REDE_CONTATOS_SQL,
   SEARCH_TABLE_SQL,
   dimSql,
   empresasSql,
@@ -135,6 +136,9 @@ async function loadWithPaths(
     await exec(EMPTY_SIMPLES_SQL);
   }
 
+  console.log('[build] rede_contatos');
+  await exec(REDE_CONTATOS_SQL);
+
   console.log('[build] estabelecimentos_busca');
   await exec(SEARCH_TABLE_SQL);
 
@@ -156,6 +160,8 @@ async function loadWithPaths(
       (SELECT count(*) FROM socios) AS socios,
       (SELECT count(*) FROM simples) AS simples,
       (SELECT count(*) FROM estabelecimentos_busca) AS estabelecimentos_busca,
+      (SELECT count(*) FROM rede_contatos) AS rede_contatos,
+      (SELECT count(DISTINCT cnpj_base) FROM rede_contatos) AS empresas_com_contato,
       (SELECT count(*) FROM dim_municipio_ibge) AS municipios_mapeados,
       (SELECT count(*) FROM (
         SELECT DISTINCT municipio_codigo, uf

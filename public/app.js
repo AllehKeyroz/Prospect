@@ -10,8 +10,8 @@ const state = {
   page: 1,
   pageSize: 25,
   totalPages: 0,
-  searchSort: 'fit',
-  searchOrder: 'desc',
+  searchSort: 'razao_social',
+  searchOrder: 'asc',
   savedSearches: [],
   options: null,
   meta: null,
@@ -36,6 +36,20 @@ const state = {
   mapPreviewToken: 0,
   mapListLimit: 6,
   mapLoading: false,
+  network: null,
+  networkLoading: false,
+  networkFilters: new Set([
+    'socio_de',
+    'mesmo_email',
+    'mesmo_telefone',
+    'mesmo_endereco',
+    'mesma_marca',
+  ]),
+  networkMap: null,
+  networkMapReady: false,
+  networkCentroids: { municipio: new Map(), uf: new Map() },
+  networkCentroidsPromise: null,
+  networkMapFitted: false,
 };
 
 const form = $('filters');
@@ -420,7 +434,9 @@ function setView(view, updateHash = true) {
   });
   $('view-mapa').hidden = view !== 'mapa';
   $('view-search').hidden = view !== 'search';
+  $('view-rede').hidden = view !== 'rede';
   $('view-dashboard').hidden = view !== 'dashboard';
+  $('view-dados').hidden = view !== 'dados';
   if (updateHash) {
     const url = new URL(window.location.href);
     url.hash = view;
@@ -435,7 +451,12 @@ function setView(view, updateHash = true) {
       if (!state.mapFitted) fitMapToBrazil();
     }, 80);
   }
+  if (view === 'rede') {
+    void ensureNetworkMap();
+    setTimeout(() => state.networkMap?.resize(), 80);
+  }
   if (view === 'dashboard') void loadDashboard();
+  if (view === 'dados') void loadCoverage();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1184,7 +1205,7 @@ function renderTable(rows) {
   if (!rows.length) {
     resultsBody.innerHTML = `
       <tr>
-        <td colspan="11" class="empty">
+        <td colspan="10" class="empty">
           Nenhuma empresa encontrada com esses filtros.<br />
           <span class="small">Tente remover a idade mínima, ampliar a UF ou limpar a busca.</span>
         </td>
@@ -1217,7 +1238,6 @@ function renderTable(rows) {
         ? `<div class="small" title="${escapeHtml(row.email)}">${escapeHtml(String(row.email).slice(0, 30))}</div>`
         : '<span class="muted">—</span>';
       const phone = firstPhone(row);
-      const score = Math.max(0, Math.min(100, Number(row.fit_score ?? 0)));
 
       return `
         <tr data-cnpj="${escapeHtml(row.cnpj)}">
@@ -1229,7 +1249,6 @@ function renderTable(rows) {
           <td>${abertura}</td>
           <td>${row.capital_social !== null && row.capital_social !== undefined ? fmtMoney(row.capital_social) : '—'}</td>
           <td>${fmtNumber(row.socios_count ?? 0)}</td>
-          <td><span class="score-badge" title="Score de prioridade: ${score}/100">${score}</span></td>
           <td>${email}</td>
           <td>${phone ? escapeHtml(phone) : '<span class="muted">—</span>'}</td>
         </tr>`;
@@ -1298,7 +1317,7 @@ async function search({ resetPage = true } = {}) {
 
   const params = buildSearchParams();
   updateSearchUrl(params);
-  resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Consultando a base…</td></tr>';
+  resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Consultando a base…</td></tr>';
   $('result-info').textContent = 'Consultando…';
 
   try {
@@ -1308,12 +1327,11 @@ async function search({ resetPage = true } = {}) {
     renderPagination(payload.total_pages ?? 0);
 
     const sortLabel = {
-      fit: 'prioridade',
       razao_social: 'razão social',
       data_inicio: 'abertura recente',
       capital_social: 'capital',
       socios: 'sócios',
-    }[state.searchSort] ?? 'prioridade';
+    }[state.searchSort] ?? 'razão social';
     const info = [
       `${fmtNumber(payload.total)} estabelecimentos`,
       payload.total > 0
@@ -1329,7 +1347,7 @@ async function search({ resetPage = true } = {}) {
   } catch (error) {
     console.error(error);
     showToast(error.message, 'error');
-    resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Erro ao consultar a base.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Erro ao consultar a base.</td></tr>';
     $('result-info').textContent = 'Erro ao consultar a base.';
   } finally {
     state.loading = false;
@@ -1337,8 +1355,667 @@ async function search({ resetPage = true } = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Rede de ligações                                                    */
+/* ------------------------------------------------------------------ */
+
+const NETWORK_NODE_COLOR = {
+  empresa: '#0d5c63',
+  socio: '#7c5cbf',
+  email: '#e8a33d',
+  telefone: '#2f80ed',
+  endereco: '#8a6d3b',
+  marca: '#b33a3a',
+};
+
+const NETWORK_EDGE_COLOR = {
+  socio_de: '#0d5c63',
+  mesmo_email: '#e8a33d',
+  mesmo_telefone: '#2f80ed',
+  mesmo_endereco: '#8a6d3b',
+  mesma_marca: '#b33a3a',
+};
+
+const NETWORK_EDGE_LABEL = {
+  socio_de: 'Sócio',
+  mesmo_email: 'E-mail',
+  mesmo_telefone: 'Telefone',
+  mesmo_endereco: 'Endereço',
+  mesma_marca: 'Marca',
+};
+
+function networkNodeRadius(node) {
+  if (node.tipo === 'empresa') return node.central ? 17 : 9;
+  if (node.tipo === 'socio') return 8;
+  return node.hub ? 11 : 7;
+}
+
+function networkNodeLabel(node, degree) {
+  if (node.central || node.hub || degree >= 3) return true;
+  return node.tipo === 'socio';
+}
+
+function shorten(value, size = 30) {
+  const text = String(value ?? '');
+  return text.length > size ? `${text.slice(0, size - 1)}…` : text;
+}
+
+function geometryCenter(geometry) {
+  if (!geometry) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const walk = (coords) => {
+    if (!Array.isArray(coords)) return;
+    if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+      minX = Math.min(minX, coords[0]);
+      minY = Math.min(minY, coords[1]);
+      maxX = Math.max(maxX, coords[0]);
+      maxY = Math.max(maxY, coords[1]);
+      return;
+    }
+    for (const item of coords) walk(item);
+  };
+  walk(geometry.coordinates);
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+  return [(minX + maxX) / 2, (minY + maxY) / 2];
+}
+
+async function ensureNetworkCentroids() {
+  if (state.networkCentroids.municipio.size > 0) return;
+  if (state.networkCentroidsPromise) return state.networkCentroidsPromise;
+  state.networkCentroidsPromise = (async () => {
+    const [municipios, estados] = await Promise.all([
+      fetchJson('/geo/municipios.geojson'),
+      fetchJson('/geo/estados.geojson'),
+    ]);
+    for (const feature of municipios.features ?? []) {
+      const center = geometryCenter(feature.geometry);
+      if (center) state.networkCentroids.municipio.set(String(feature.properties.codigo), center);
+    }
+    for (const feature of estados.features ?? []) {
+      const center = geometryCenter(feature.geometry);
+      if (center) state.networkCentroids.uf.set(String(feature.properties.uf), center);
+    }
+  })();
+  try {
+    await state.networkCentroidsPromise;
+  } finally {
+    state.networkCentroidsPromise = null;
+  }
+}
+
+function networkCoordinates(empresa) {
+  if (empresa.municipio_ibge) {
+    const point = state.networkCentroids.municipio.get(String(empresa.municipio_ibge));
+    if (point) return point;
+  }
+  if (empresa.uf) {
+    const point = state.networkCentroids.uf.get(String(empresa.uf));
+    if (point) return point;
+  }
+  return null;
+}
+
+function ensureNetworkMap() {
+  if (state.networkMap) {
+    state.networkMap.resize();
+    return Promise.resolve(state.networkMapReady);
+  }
+  if (!$('network-map')) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    const map = new maplibregl.Map({
+      container: 'network-map',
+      style: {
+        version: 8,
+        sources: {},
+        layers: [
+          { id: 'background', type: 'background', paint: { 'background-color': '#eaf0f3' } },
+        ],
+      },
+      bounds: [
+        [-74, -34],
+        [-34, 6],
+      ],
+      fitBoundsOptions: { padding: 24 },
+      minZoom: 2.4,
+      maxZoom: 11,
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+    });
+    state.networkMap = map;
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.on('error', (event) => console.error('network map error', event.error));
+    map.on('load', () => {
+      map.addSource('network-companies', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'network-halo',
+        type: 'circle',
+        source: 'network-companies',
+        paint: {
+          'circle-radius': ['case', ['boolean', ['get', 'central'], false], 18, 11],
+          'circle-color': '#ffffff',
+          'circle-opacity': 0.7,
+        },
+      });
+      map.addLayer({
+        id: 'network-points',
+        type: 'circle',
+        source: 'network-companies',
+        paint: {
+          'circle-radius': ['case', ['boolean', ['get', 'central'], false], 9, 6],
+          'circle-color': [
+            'case',
+            ['boolean', ['get', 'central'], false],
+            '#e8a33d',
+            '#0d5c63',
+          ],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1.5,
+        },
+      });
+      map.on('click', 'network-points', (event) => {
+        const feature = event.features?.[0];
+        const base = feature?.properties?.cnpj_base;
+        if (base) openDetail(base);
+      });
+      map.on('mouseenter', 'network-points', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'network-points', () => {
+        map.getCanvas().style.cursor = '';
+      });
+      state.networkMapReady = true;
+      map.resize();
+      if (state.network) void updateNetworkMap(state.network);
+      resolve(true);
+    });
+  });
+}
+
+async function updateNetworkMap(data) {
+  if (!state.networkMap) return;
+  await ensureNetworkCentroids();
+  if (!state.networkMapReady) return;
+
+  const features = [];
+  for (const empresa of data.empresas ?? []) {
+    const coordinates = networkCoordinates(empresa);
+    if (!coordinates) continue;
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates },
+      properties: {
+        cnpj_base: empresa.cnpj_base,
+        razao_social: empresa.razao_social,
+        relacoes: (empresa.relacoes ?? []).join(', '),
+        central: Boolean((empresa.relacoes ?? []).includes('centro')),
+        situacao: empresa.situacao ?? '',
+      },
+    });
+  }
+
+  state.networkMap.getSource('network-companies')?.setData({
+    type: 'FeatureCollection',
+    features,
+  });
+  $('network-map-count').textContent = `${fmtNumber(features.length)} de ${fmtNumber(
+    data.empresas?.length ?? 0,
+  )} com localização`;
+
+  if (features.length === 1) {
+    state.networkMap.easeTo({ center: features[0].geometry.coordinates, zoom: 7, duration: 0 });
+    state.networkMapFitted = true;
+  } else if (features.length > 1) {
+    const bounds = new maplibregl.LngLatBounds();
+    for (const feature of features) bounds.extend(feature.geometry.coordinates);
+    state.networkMap.fitBounds(bounds, { padding: 38, maxZoom: 8, duration: 0 });
+    state.networkMapFitted = true;
+  }
+}
+
+function renderNetworkGraph(data) {
+  const container = $('network-graph');
+  if (!container) return;
+  const activeEdges = (data.edges ?? []).filter((edge) => state.networkFilters.has(edge.tipo));
+  const activeNodeIds = new Set();
+  for (const edge of activeEdges) {
+    activeNodeIds.add(edge.origem);
+    activeNodeIds.add(edge.destino);
+  }
+  const nodes = (data.nodes ?? []).filter((node) => node.central || activeNodeIds.has(node.id));
+  if (!nodes.length) {
+    container.innerHTML = '<p class="graph-empty muted">Nenhuma ligação com os filtros atuais.</p>';
+    return;
+  }
+
+  const width = Math.max(560, Math.round(container.clientWidth || 900));
+  const height = Math.max(420, Math.round(container.clientHeight || 640));
+  const positions = new Map();
+  nodes.forEach((node, index) => {
+    const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2;
+    const radius = node.central ? 0 : Math.min(width, height) * 0.34;
+    positions.set(node.id, {
+      x: width / 2 + Math.cos(angle) * radius,
+      y: height / 2 + Math.sin(angle) * radius,
+    });
+  });
+
+  const degree = new Map();
+  for (const edge of activeEdges) {
+    degree.set(edge.origem, (degree.get(edge.origem) ?? 0) + 1);
+    degree.set(edge.destino, (degree.get(edge.destino) ?? 0) + 1);
+  }
+
+  for (let iteration = 0; iteration < 180; iteration++) {
+    const forces = new Map(nodes.map((node) => [node.id, { x: 0, y: 0 }]));
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = positions.get(nodes[i].id);
+        const b = positions.get(nodes[j].id);
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const distance = Math.max(24, Math.hypot(dx, dy));
+        const force = 5200 / (distance * distance);
+        const ux = dx / distance;
+        const uy = dy / distance;
+        forces.get(nodes[i].id).x += ux * force;
+        forces.get(nodes[i].id).y += uy * force;
+        forces.get(nodes[j].id).x -= ux * force;
+        forces.get(nodes[j].id).y -= uy * force;
+      }
+    }
+    for (const edge of activeEdges) {
+      const a = positions.get(edge.origem);
+      const b = positions.get(edge.destino);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const desired = edge.tipo === 'socio_de' ? 135 : 110;
+      const force = (distance - desired) * 0.0035;
+      const ux = dx / distance;
+      const uy = dy / distance;
+      forces.get(edge.origem).x += ux * force;
+      forces.get(edge.origem).y += uy * force;
+      forces.get(edge.destino).x -= ux * force;
+      forces.get(edge.destino).y -= uy * force;
+    }
+    for (const node of nodes) {
+      const point = positions.get(node.id);
+      const force = forces.get(node.id);
+      force.x += (width / 2 - point.x) * 0.0009;
+      force.y += (height / 2 - point.y) * 0.0009;
+      point.x += Math.max(-7, Math.min(7, force.x));
+      point.y += Math.max(-7, Math.min(7, force.y));
+      point.x = Math.max(36, Math.min(width - 36, point.x));
+      point.y = Math.max(36, Math.min(height - 36, point.y));
+    }
+  }
+
+  const edgeSvg = activeEdges
+    .map((edge) => {
+      const a = positions.get(edge.origem);
+      const b = positions.get(edge.destino);
+      if (!a || !b) return '';
+      const color = NETWORK_EDGE_COLOR[edge.tipo] ?? '#9aa8ae';
+      const widthLine = edge.tipo === 'socio_de' ? 1.8 : 1.1;
+      return `<line class="graph-edge ${escapeHtml(edge.confianca)}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(
+        1,
+      )}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${color}" stroke-width="${widthLine}" />`;
+    })
+    .join('');
+
+  const nodeSvg = nodes
+    .map((node) => {
+      const point = positions.get(node.id);
+      const radius = networkNodeRadius(node);
+      const color = NETWORK_NODE_COLOR[node.tipo] ?? '#7b8b92';
+      const label = networkNodeLabel(node, degree.get(node.id) ?? 0);
+      const labelY = point.y - radius - 8;
+      const subY = point.y + radius + 13;
+      const safeLabel = shorten(node.rotulo, 34);
+      const safeSub = shorten(node.subtitulo, 40);
+      const cn = node.cnpj_base ? ` data-cnpj="${escapeHtml(node.cnpj_base)}"` : '';
+      return `
+        <g class="graph-node" data-node-id="${escapeHtml(node.id)}"${cn} data-tipo="${escapeHtml(
+          node.tipo,
+        )}" data-label="${escapeHtml(node.rotulo)}" data-sub="${escapeHtml(node.subtitulo)}">
+          <circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${radius}" fill="${color}" stroke="${
+            node.hub ? '#e8a33d' : '#ffffff'
+          }" stroke-width="${node.hub ? 3 : 1.5}" />
+          <title>${escapeHtml(node.rotulo)} — ${escapeHtml(node.subtitulo)}</title>
+          ${
+            label
+              ? `<text class="graph-label" x="${point.x.toFixed(1)}" y="${labelY.toFixed(
+                  1,
+                )}" text-anchor="middle">${escapeHtml(safeLabel)}</text>
+                 <text class="graph-label sub" x="${point.x.toFixed(1)}" y="${subY.toFixed(
+                   1,
+                 )}" text-anchor="middle">${escapeHtml(safeSub)}</text>`
+              : ''
+          }
+        </g>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Mapa de ligações da empresa">
+      ${edgeSvg}
+      ${nodeSvg}
+    </svg>`;
+
+  const svg = container.querySelector('svg');
+  svg?.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-node-id]');
+    if (!target) return;
+    if (target.dataset.cnpj) {
+      openDetail(target.dataset.cnpj);
+      return;
+    }
+    showToast(`${target.dataset.label} · ${target.dataset.sub}`);
+  });
+}
+
+function renderNetworkSummary(data) {
+  const resumo = data.resumo ?? {};
+  const kpis = [
+    ['Sócios', resumo.socios],
+    ['Empresas via sócios', resumo.empresas_via_socios],
+    ['Contatos', resumo.contatos],
+    ['Empresas via contatos', resumo.empresas_via_contatos],
+    ['Hubs', resumo.hubs],
+    ['Empresas no grafo', resumo.empresas_no_grafo],
+  ];
+  $('network-summary').innerHTML = `
+    <div class="network-summary">
+      ${kpis
+        .map(
+          ([label, value]) =>
+            `<div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${fmtNumber(
+              value,
+            )}</strong></div>`,
+        )
+        .join('')}
+      <p class="network-summary-note">
+        Contagens totais da rede. O grafo exibe uma amostra limitada de empresas por nó.
+      </p>
+    </div>`;
+}
+
+function renderNetworkCompanies(data) {
+  const companies = [...(data.empresas ?? [])]
+    .sort((a, b) => {
+      const byRelations = (b.relacoes?.length ?? 0) - (a.relacoes?.length ?? 0);
+      return byRelations || String(a.razao_social).localeCompare(String(b.razao_social));
+    })
+    .slice(0, 24);
+  if (!companies.length) {
+    $('network-companies').innerHTML = '<p class="muted small">Nenhuma empresa conectada.</p>';
+    return;
+  }
+  $('network-companies').innerHTML = `
+    <div class="network-companies">
+      ${companies
+        .map((item) => {
+          const relacoes = (item.relacoes ?? [])
+            .filter((value) => value !== 'centro')
+            .map((value) => value[0]?.toUpperCase() + value.slice(1))
+            .slice(0, 3)
+            .join(' · ');
+          const local = [item.municipio, item.uf].filter(Boolean).join(' / ');
+          return `<div class="network-company" data-cnpj="${escapeHtml(item.cnpj_base)}">
+            <div class="network-company-name">${escapeHtml(item.razao_social)}</div>
+            <div class="network-company-tag">${escapeHtml(relacoes || 'centro')}</div>
+            <div class="network-company-meta">${escapeHtml(local || 'Local não informado')} · ${escapeHtml(
+              item.situacao ?? 'situação não informada',
+            )}</div>
+          </div>`;
+        })
+        .join('')}
+    </div>`;
+}
+
+function renderNetwork(data) {
+  state.network = data;
+  state.networkMapFitted = false;
+  const centro = data.centro ?? {};
+  $('network-title').textContent = centro.razao_social || 'Rede da empresa';
+  $('network-subtitle').textContent = `${centro.cnpj_formatado || centro.cnpj_base || ''} · ${
+    data.resumo?.empresas_no_grafo ?? 0
+  } empresa(s) no grafo`;
+  $('network-legend').innerHTML = `
+    ${Object.entries(NETWORK_NODE_COLOR)
+      .map(
+        ([tipo, color]) =>
+          `<span class="legend-item"><i class="legend-dot" style="background:${color}"></i>${escapeHtml(
+            tipo === 'socio' ? 'Sócio' : tipo === 'empresa' ? 'Empresa' : tipo[0].toUpperCase() + tipo.slice(1),
+          )}</span>`,
+      )
+      .join('')}
+    <span class="legend-item"><i class="legend-dot" style="background:#e8a33d"></i>Hub / centro</span>`;
+  renderNetworkSummary(data);
+  renderNetworkCompanies(data);
+  renderNetworkGraph(data);
+  void ensureNetworkMap().then(() => updateNetworkMap(data));
+  $('network-suggestions').innerHTML = '';
+}
+
+async function loadNetworkByCnpj(cnpj) {
+  if (state.networkLoading) return;
+  state.networkLoading = true;
+  $('network-title').textContent = 'Carregando rede…';
+  $('network-subtitle').textContent = 'Consultando sócios, contatos, endereços e marcas.';
+  $('network-graph').innerHTML = '<p class="graph-empty muted">Calculando ligações…</p>';
+  try {
+    const data = await fetchJson(`/api/rede/empresa/${encodeURIComponent(cnpj)}`);
+    renderNetwork(data);
+    const normalized = String(cnpj).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    const url = new URL(window.location.href);
+    url.hash = `rede=${normalized}`;
+    window.history.replaceState(null, '', url);
+    $('network-q').value = data.centro?.cnpj_formatado || normalized;
+  } catch (error) {
+    console.error(error);
+    $('network-title').textContent = 'Rede não encontrada';
+    $('network-graph').innerHTML = `<p class="graph-empty muted">${escapeHtml(error.message)}</p>`;
+    showToast(error.message, 'error');
+  } finally {
+    state.networkLoading = false;
+  }
+}
+
+async function searchNetwork() {
+  const query = $('network-q').value.trim();
+  if (!query) {
+    showToast('Informe um CNPJ ou nome de empresa.', 'error');
+    return;
+  }
+  const digits = query.replace(/[^0-9A-Za-z]/g, '');
+  if (digits.length === 14 || digits.length === 8) {
+    await loadNetworkByCnpj(digits);
+    return;
+  }
+  $('network-suggestions').innerHTML = '<p class="muted small">Buscando empresas…</p>';
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      page_size: '8',
+      sort: 'razao_social',
+      order: 'asc',
+    });
+    const payload = await fetchJson(`/api/empresas?${params.toString()}`);
+    const rows = payload.data ?? [];
+    if (!rows.length) {
+      $('network-suggestions').innerHTML =
+        '<p class="muted small">Nenhuma empresa encontrada. Tente o CNPJ.</p>';
+      return;
+    }
+    $('network-suggestions').innerHTML = rows
+      .map(
+        (row) => `<div class="network-suggestion" data-cnpj="${escapeHtml(row.cnpj)}">
+          <strong>${escapeHtml(row.razao_social || row.cnpj_formatado)}</strong>
+          <span>${escapeHtml(row.cnpj_formatado || row.cnpj)} · ${escapeHtml(
+            [row.municipio_nome, row.uf].filter(Boolean).join(' / '),
+          )}</span>
+        </div>`,
+      )
+      .join('');
+  } catch (error) {
+    console.error(error);
+    $('network-suggestions').innerHTML = `<p class="muted small">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function clearNetwork() {
+  state.network = null;
+  $('network-q').value = '';
+  $('network-suggestions').innerHTML = '';
+  $('network-title').textContent = 'Busque uma empresa';
+  $('network-subtitle').textContent = 'Sócios, contatos, endereços e marcas compartilhados.';
+  $('network-graph').innerHTML =
+    '<p class="graph-empty muted">A rede aparece aqui depois da busca.</p>';
+  $('network-summary').innerHTML = '';
+  $('network-companies').innerHTML = '';
+  $('network-map-count').textContent = '';
+  const url = new URL(window.location.href);
+  url.hash = 'rede';
+  window.history.replaceState(null, '', url);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cobertura histórica                                                 */
+/* ------------------------------------------------------------------ */
+
+async function loadCoverage() {
+  const container = $('coverage-grid');
+  if (!container) return;
+  try {
+    const payload = await fetchJson('/api/historico/cobertura');
+    const labels = {
+      oficial: 'Oficial',
+      validado: 'Validado',
+      espelho: 'Espelho',
+      reconstruido: 'Reconstruído',
+      parcial: 'Parcial',
+      sem_fonte: 'Sem fonte',
+    };
+    container.innerHTML = (payload.ranges ?? [])
+      .map(
+        (range) => `<article class="coverage-card">
+          <header>
+            <h3>${escapeHtml(range.periodo)}</h3>
+            <span class="coverage-badge coverage-${escapeHtml(range.camada)}">${escapeHtml(
+              labels[range.camada] ?? range.camada,
+            )}</span>
+          </header>
+          <p><strong>${escapeHtml(range.fonte)}</strong></p>
+          <p>${escapeHtml(range.campos)}</p>
+          <p>${escapeHtml(range.observacao)}</p>
+        </article>`,
+      )
+      .join('');
+
+    const validation = payload.validation;
+    const panel = $('coverage-validation-panel');
+    if (!validation) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    const agreement = validation.agreement ?? {};
+    const coverage = validation.coverage ?? {};
+    const sample = validation.sample ?? {};
+    const files = validation.files ?? [];
+    $('coverage-validation-status').textContent = `${fmtNumber(sample.scanned ?? 0)} amostrados`;
+    const kpis = [
+      ['Match de base', `${coverage.pct_base ?? 0}%`],
+      ['Match completo', `${coverage.pct_full ?? 0}%`],
+      ['Nome exato', `${agreement.pct_name_exact ?? 0}%`],
+      ['Situação', `${agreement.pct_situation ?? 0}%`],
+      ['Abertura', `${agreement.pct_opening_date ?? 0}%`],
+      ['CNAE', `${agreement.pct_cnae ?? 0}%`],
+      ['UF', `${agreement.pct_uf ?? 0}%`],
+      ['Arquivos', files.length],
+      ['Empresas no arquivo', files.reduce((sum, item) => sum + Number(item.total_companies ?? 0), 0)],
+    ];
+    $('coverage-validation').innerHTML = kpis
+      .map(
+        ([label, value]) =>
+          `<div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(
+            typeof value === 'number' ? fmtNumber(value) : String(value),
+          )}</strong></div>`,
+      )
+      .join('');
+  } catch (error) {
+    console.error(error);
+    container.innerHTML = `<p class="muted">Não foi possível carregar a cobertura: ${escapeHtml(
+      error.message,
+    )}</p>`;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Ficha cadastral                                                     */
 /* ------------------------------------------------------------------ */
+
+function formatPassportFact(fact) {
+  if (fact.id === 'capital') return fmtMoney(fact.valor);
+  if (fact.id === 'abertura') return fmtDate(fact.valor);
+  if (['socios', 'estabelecimentos', 'contatos', 'rede'].includes(fact.id)) {
+    return fmtNumber(fact.valor);
+  }
+  return escapeHtml(fact.valor ?? '—');
+}
+
+function renderPassport(passaporte, cnpjBase) {
+  if (!passaporte) return '';
+  const facts = (passaporte.fatos ?? [])
+    .map(
+      (fact) => `<div class="passport-fact">
+        <span>${escapeHtml(fact.rotulo)}</span>
+        <strong>${formatPassportFact(fact)}</strong>
+        ${fact.detalhe ? `<small>${escapeHtml(fact.detalhe)}</small>` : ''}
+      </div>`,
+    )
+    .join('');
+  const events = (passaporte.eventos ?? [])
+    .map(
+      (event) => `<li class="passport-event">
+        <time>${escapeHtml(fmtDate(event.data))}</time>
+        <strong>${escapeHtml(event.titulo)}</strong>
+        ${event.descricao ? `<p>${escapeHtml(event.descricao)}</p>` : ''}
+      </li>`,
+    )
+    .join('');
+  return `
+    <div class="detail-section passport-section">
+      <div class="panel-head">
+        <h3>Passaporte histórico</h3>
+        <span class="tag">${escapeHtml(passaporte.cobertura?.snapshot ?? '')}</span>
+      </div>
+      <div class="passport-facts">${facts}</div>
+      ${
+        events
+          ? `<ol class="passport-timeline">${events}</ol>`
+          : '<p class="muted small">Sem eventos datados para esta empresa.</p>'
+      }
+      <div class="passport-coverage">
+        <strong>Cobertura:</strong> ${escapeHtml(passaporte.cobertura?.historico_empresa ?? '')}
+        ${escapeHtml(passaporte.cobertura?.observacao ?? '')}
+      </div>
+      <div class="passport-actions">
+        <button type="button" class="btn btn-primary btn-small" data-open-network="${escapeHtml(
+          cnpjBase,
+        )}">Abrir mapa de ligações</button>
+      </div>
+    </div>`;
+}
 
 function renderDetail(data) {
   const empresa = data.empresa ?? {};
@@ -1417,6 +2094,8 @@ function renderDetail(data) {
 
   $('detail-content').innerHTML = `
     <div class="detail-grid">${detailGrid}</div>
+
+    ${renderPassport(data.passaporte, data.cnpj_base)}
 
     <div class="detail-section">
       <h3>Estabelecimentos (${(data.estabelecimentos ?? []).length})</h3>
@@ -1782,7 +2461,7 @@ function readUrlParams() {
   state.page = Math.max(1, Number(params.get('page') ?? 1) || 1);
   state.pageSize = Math.min(100, Math.max(1, Number(params.get('page_size') ?? 25) || 25));
   const sort = params.get('sort');
-  if (['fit', 'razao_social', 'data_inicio', 'capital_social', 'socios'].includes(sort)) {
+  if (['razao_social', 'data_inicio', 'capital_social', 'socios'].includes(sort)) {
     state.searchSort = sort;
   }
   const order = params.get('order');
@@ -2010,16 +2689,52 @@ function wireEvents() {
     if (row) openDetail(row.dataset.cnpj);
   });
 
+  $('network-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    void searchNetwork();
+  });
+
+  $('network-clear').addEventListener('click', clearNetwork);
+
+  $('network-recenter').addEventListener('click', () => {
+    if (state.network) renderNetworkGraph(state.network);
+  });
+
+  $('network-suggestions').addEventListener('click', (event) => {
+    const row = event.target.closest('.network-suggestion[data-cnpj]');
+    if (row) void loadNetworkByCnpj(row.dataset.cnpj);
+  });
+
+  $('network-companies').addEventListener('click', (event) => {
+    const row = event.target.closest('.network-company[data-cnpj]');
+    if (row) openDetail(row.dataset.cnpj);
+  });
+
+  $('network-filters').addEventListener('change', (event) => {
+    const input = event.target.closest('input[data-edge]');
+    if (!input) return;
+    if (input.checked) state.networkFilters.add(input.dataset.edge);
+    else state.networkFilters.delete(input.dataset.edge);
+    if (state.network) renderNetworkGraph(state.network);
+  });
+
+  $('detail-content').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-open-network]');
+    if (!button) return;
+    $('detail').close();
+    setView('rede');
+    void loadNetworkByCnpj(button.dataset.openNetwork);
+  });
+
   $('sort').addEventListener('change', () => {
     const value = $('sort').value;
     const mapping = {
-      fit: ['fit', 'desc'],
       razao_social: ['razao_social', 'asc'],
       data_inicio: ['data_inicio', 'desc'],
       capital_social: ['capital_social', 'desc'],
       socios: ['socios', 'desc'],
     };
-    const [sort, order] = mapping[value] ?? ['fit', 'desc'];
+    const [sort, order] = mapping[value] ?? ['razao_social', 'asc'];
     state.searchSort = sort;
     state.searchOrder = order;
     search({ resetPage: true });
@@ -2056,12 +2771,41 @@ function wireEvents() {
     }
   });
 
+  window.addEventListener('hashchange', () => {
+    void applyHashRoute();
+  });
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeAllSelects();
       if ($('detail').open) $('detail').close();
     }
   });
+}
+
+async function applyHashRoute() {
+  if (window.location.hash === '#dashboard') {
+    setView('dashboard', false);
+    return;
+  }
+  if (window.location.hash === '#dados') {
+    setView('dados', false);
+    return;
+  }
+  if (window.location.hash.startsWith('#rede')) {
+    setView('rede', false);
+    const networkCnpj = window.location.hash.startsWith('#rede=')
+      ? decodeURIComponent(window.location.hash.slice(6))
+      : '';
+    if (networkCnpj) await loadNetworkByCnpj(networkCnpj);
+    return;
+  }
+  if (window.location.hash === '#busca') {
+    setView('search', false);
+    await search({ resetPage: false });
+    return;
+  }
+  setView('mapa', false);
 }
 
 async function init() {
@@ -2079,18 +2823,12 @@ async function init() {
     }
     await loadCities($('dash-uf'), $('dash-municipio'));
 
-    if (window.location.hash === '#dashboard') setView('dashboard', false);
-    else if (window.location.hash === '#busca') {
-      setView('search', false);
-      await search({ resetPage: false });
-    } else {
-      setView('mapa', false);
-    }
+    await applyHashRoute();
   } catch (error) {
     console.error(error);
     showToast(error.message, 'error');
     $('result-info').textContent = 'Falha ao inicializar a aplicação.';
-    resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Verifique se a API e o banco estão disponíveis.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Verifique se a API e o banco estão disponíveis.</td></tr>';
   }
 }
 

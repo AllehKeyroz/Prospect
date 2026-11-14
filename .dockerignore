@@ -6,5 +6,4 @@ data
 *.log
 .env
 coverage
-docs
 explore

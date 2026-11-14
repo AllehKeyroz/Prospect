@@ -17,6 +17,8 @@
     "prepare:snapshot": "tsx src/ingest/prepareSnapshot.ts",
     "ingest:sample": "tsx src/ingest/loadSample.ts",
     "ingest:snapshot": "tsx src/ingest/loadSnapshot.ts",
+    "history:download-2019": "tsx src/history/downloadWayback2019.ts",
+    "history:validate-2019": "tsx src/history/validateWayback2019.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -28,7 +28,9 @@
       <nav class="tabs" aria-label="Navegação principal">
         <button type="button" class="tab active" data-view="mapa">Mapa</button>
         <button type="button" class="tab" data-view="search">Busca</button>
+        <button type="button" class="tab" data-view="rede">Rede</button>
         <button type="button" class="tab" data-view="dashboard">Dashboard</button>
+        <button type="button" class="tab" data-view="dados">Dados</button>
       </nav>
 
       <section id="view-mapa" class="view" hidden>
@@ -122,6 +124,73 @@
             <section class="panel map-timeline-panel">
               <h3>Nascimentos e fechamentos</h3>
               <div id="map-timeline" class="chart chart-line"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-rede" class="view" hidden>
+        <section class="panel network-search-panel">
+          <form id="network-form" class="network-search-form" autocomplete="off">
+            <div class="field field-search">
+              <label for="network-q">Empresa ou CNPJ</label>
+              <input
+                id="network-q"
+                type="search"
+                placeholder="CNPJ, razão social ou nome fantasia"
+              />
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-primary">Analisar rede</button>
+              <button type="button" class="btn" id="network-clear">Limpar</button>
+            </div>
+          </form>
+          <div id="network-suggestions" class="network-suggestions"></div>
+        </section>
+
+        <div class="network-layout">
+          <section class="panel network-graph-panel">
+            <div class="network-graph-head">
+              <div>
+                <p class="eyebrow">Mapa de ligações</p>
+                <h2 id="network-title">Busque uma empresa</h2>
+                <p id="network-subtitle" class="muted">
+                  Sócios, contatos, endereços e marcas compartilhados.
+                </p>
+              </div>
+              <button type="button" class="btn btn-small" id="network-recenter">Reorganizar</button>
+            </div>
+            <div class="network-legend" id="network-legend"></div>
+            <div class="network-filters" id="network-filters">
+              <label><input type="checkbox" data-edge="socio_de" checked /> Sócio</label>
+              <label><input type="checkbox" data-edge="mesmo_email" checked /> E-mail</label>
+              <label><input type="checkbox" data-edge="mesmo_telefone" checked /> Telefone</label>
+              <label><input type="checkbox" data-edge="mesmo_endereco" checked /> Endereço</label>
+              <label><input type="checkbox" data-edge="mesma_marca" checked /> Marca</label>
+            </div>
+            <div id="network-graph" class="network-graph">
+              <p class="muted">A rede aparece aqui depois da busca.</p>
+            </div>
+          </section>
+
+          <aside class="network-side">
+            <section class="panel network-map-panel">
+              <div class="panel-head">
+                <h3>Distribuição geográfica</h3>
+                <span id="network-map-count" class="muted small"></span>
+              </div>
+              <div id="network-map"></div>
+              <div class="network-map-legend" id="network-map-legend"></div>
+            </section>
+
+            <section class="panel network-summary-panel">
+              <h3>Resumo da rede</h3>
+              <div id="network-summary"></div>
+            </section>
+
+            <section class="panel network-companies-panel">
+              <h3>Empresas conectadas</h3>
+              <div id="network-companies"></div>
             </section>
           </aside>
         </div>
@@ -253,8 +322,7 @@
               <div class="results-tools">
                 <label for="sort">Ordenar por</label>
                 <select id="sort">
-                  <option value="fit" selected>Prioridade</option>
-                  <option value="razao_social">Nome</option>
+                  <option value="razao_social" selected>Nome</option>
                   <option value="data_inicio">Abertura recente</option>
                   <option value="capital_social">Capital</option>
                   <option value="socios">Sócios</option>
@@ -275,13 +343,12 @@
                     <th>Abertura</th>
                     <th>Capital</th>
                     <th>Sócios</th>
-                    <th>Score</th>
                     <th>E-mail</th>
                     <th>Telefone</th>
                   </tr>
                 </thead>
                 <tbody id="results-body">
-                  <tr><td colspan="11" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="10" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -416,6 +483,53 @@
             <h3>Nº de sócios</h3>
             <div id="chart-socios" class="chart"></div>
           </article>
+        </section>
+      </section>
+
+      <section id="view-dados" class="view" hidden>
+        <section class="panel data-hero">
+          <p class="eyebrow">Data Trust Lab</p>
+          <h2>Cobertura histórica</h2>
+          <p class="muted">
+            O que é oficial, o que foi validado, o que é reconstruído e o que ainda não existe.
+            Nenhuma camada incerta é tratada como verdade absoluta.
+          </p>
+          <div id="coverage-grid" class="coverage-grid">
+            <p class="muted">Carregando cobertura…</p>
+          </div>
+        </section>
+
+        <section class="panel data-validation-panel" id="coverage-validation-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Validação 2019</p>
+              <h3>Wayback × snapshot local</h3>
+            </div>
+            <span id="coverage-validation-status" class="tag"></span>
+          </div>
+          <div id="coverage-validation" class="coverage-validation"></div>
+        </section>
+
+        <section class="panel data-method-panel">
+          <h3>Como ler esta cobertura</h3>
+          <div class="data-method-grid">
+            <div>
+              <strong>Oficial</strong>
+              <p>Snapshots mensais da Receita Federal a partir de 2023-05. Fonte autoritativa.</p>
+            </div>
+            <div>
+              <strong>Validado</strong>
+              <p>Arquivo histórico comparado por amostragem com a base oficial; entra como camada complementar.</p>
+            </div>
+            <div>
+              <strong>Reconstruído</strong>
+              <p>Foto aproximada de 2000–2018 usando datas de abertura/fechamento do snapshot atual.</p>
+            </div>
+            <div>
+              <strong>Sem fonte</strong>
+              <p>Período com metadados, mas sem conteúdo em bulk recuperável. Não é apresentado como histórico.</p>
+            </div>
+          </div>
         </section>
       </section>
     </main>

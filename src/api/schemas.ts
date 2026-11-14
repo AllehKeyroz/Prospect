@@ -81,7 +81,6 @@ export const sortValues = [
   'situacao',
   'idade',
   'socios',
-  'fit',
 ] as const;
 
 export const searchSchema = z.object({
@@ -142,6 +141,14 @@ export const cnpjParamsSchema = z.object({
   cnpj: z.string().min(8).max(20),
 });
 
+export const networkQuerySchema = z.object({
+  parceiros: z.coerce.number().int().min(1).max(30).default(8),
+  empresas_por_parceiro: z.coerce.number().int().min(1).max(30).default(8),
+  contatos: z.coerce.number().int().min(1).max(20).default(5),
+  empresas_por_contato: z.coerce.number().int().min(1).max(30).default(6),
+  hub_min: z.coerce.number().int().min(2).max(1000).default(5),
+});
+
 export const savedSearchSchema = z.object({
   name: z.string().trim().min(1).max(120),
   filters: z.record(z.string(), z.string()),
@@ -158,3 +165,4 @@ export type DashboardInput = z.infer<typeof dashboardSchema>;
 export type MapaInput = z.infer<typeof mapaSchema>;
 export type MercadoInput = z.infer<typeof mercadoSchema>;
 export type TimelineInput = z.infer<typeof timelineSchema>;
+export type NetworkQueryInput = z.infer<typeof networkQuerySchema>;

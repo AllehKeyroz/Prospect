@@ -2,7 +2,7 @@
 
 Sistema interno de consulta e análise de mercado/concorrentes com os Dados Abertos de CNPJ da Receita Federal.
 
-**Status:** MVP funcional com amostra local. A carga do snapshot completo é a próxima etapa.
+**Status:** MVP funcional com amostra local, passaporte histórico (H2), mapa de ligações (N1) e Data Trust Lab (N5). A carga do snapshot completo é a próxima etapa de escala.
 
 ---
 
@@ -24,13 +24,17 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
   - contato separado em **e-mail** e **telefone**;
   - cards de resumo;
   - ranking de CNAEs e UFs;
-  - **score de prioridade** explicável e ordenação por prioridade, nome, abertura, capital ou sócios;
+  - ordenação por nome, abertura, capital ou sócios;
   - **buscas salvas** (perfis reutilizáveis);
+  - **passaporte histórico da empresa** com fatos, eventos datados, cobertura e resumo da rede;
+  - **mapa de ligações** com sócios, e-mails, telefones, endereços, marcas, hubs e confiança por aresta;
+  - **mapa geográfico da rede** e lista de empresas conectadas;
   - ficha cadastral com estabelecimentos, sócios e Simples/MEI;
   - exportação CSV;
   - **mapa do Brasil** com hover/clique em região, estado e cidade, lista sincronizada, métricas e raio-X competitivo;
   - **gráfico de nascimentos e fechamentos** por ano, global e por território;
-  - **dashboard** com KPIs e gráficos de situação, porte, UFs, CNAEs, cidades, aberturas, idade, capital e número de sócios.
+  - **dashboard** com KPIs e gráficos de situação, porte, UFs, CNAEs, cidades, aberturas, idade, capital e número de sócios;
+  - **Data Trust Lab** com matriz de cobertura histórica 2000–2026 e validação por amostragem do pacote 2019 do Wayback.
 - Testes unitários de CNPJ (numérico e alfanumérico) e do query builder.
 
 ### Números do teste local
@@ -101,6 +105,8 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | Comando | O que faz |
 |---|---|
 | `npm run geo:build` | Baixa/atualiza a malha IBGE e gera os arquivos estáticos do mapa |
+| `npm run history:download-2019` | Baixa o pacote 2019 do Wayback para `data/wayback/2019/` |
+| `npm run history:validate-2019` | Valida o pacote 2019 por amostragem contra o snapshot local |
 | `npm run sample` | Baixa dimensões + amostra do shard 1 e grava em `data/sample/` |
 | `npm run ingest:sample` | Cria/recria `data/cnpj.duckdb` a partir da amostra |
 | `npm run dev` | API + UI em modo desenvolvimento (`tsx watch`) |
@@ -145,6 +151,8 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | `GET` | `/api/mapa?nivel=uf` | Métricas agregadas por região, UF ou município |
 | `GET` | `/api/mercado?nivel=uf&codigo=SP` | Raio-X competitivo do território |
 | `GET` | `/api/timeline` | Nascimentos e fechamentos por ano |
+| `GET` | `/api/rede/empresa/:cnpj` | Grafo de ligações (sócios, contatos, endereços e marcas) + empresas para o mapa |
+| `GET` | `/api/historico/cobertura` | Matriz de cobertura histórica e relatório de validação 2019 |
 | `GET` | `/api/empresas` | Listagem com filtros, paginação e resumo |
 | `GET` | `/api/estatisticas` | Agregações por UF, CNAE, situação, porte, município ou natureza |
 | `GET` | `/api/dashboard` | KPIs e séries para o dashboard |
@@ -190,6 +198,12 @@ curl "http://localhost:3000/api/mercado?nivel=uf&codigo=SP&situacao=02"
 # Nascimentos e fechamentos
 curl "http://localhost:3000/api/timeline?uf=SP"
 
+# Mapa de ligações de uma empresa
+curl "http://localhost:3000/api/rede/empresa/03444384"
+
+# Cobertura histórica e validação 2019
+curl "http://localhost:3000/api/historico/cobertura"
+
 # Exportar CSV
 curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min=3&uf=SP"
 ```
@@ -219,8 +233,8 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
 | `matriz` | `true` | Somente matriz |
 | `page` | `1` | Página |
 | `page_size` | `25` | Máximo 200 |
-| `sort` | `fit` | `fit` (prioridade), `razao_social`, `data_inicio`, `capital_social`, `uf`, `cnae`, `situacao`, `idade`, `socios` |
-| `order` | `desc` | `asc` ou `desc` |
+| `sort` | `razao_social` | `razao_social`, `data_inicio`, `capital_social`, `uf`, `cnae`, `situacao`, `idade`, `socios` |
+| `order` | `asc` | `asc` ou `desc` |
 
 ### Resposta de `/api/empresas`
 
@@ -279,27 +293,24 @@ O DuckDB contém:
 | `dim_motivo` | Motivo de situação cadastral |
 | `dim_pais` | Países |
 | `estabelecimentos_busca` | Tabela denormalizada usada pela API |
+| `rede_contatos` | Contatos normalizados por CNPJ base: e-mail, telefone, endereço e marca |
 | `municipio_ibge` / `regiao` | De–para RFB → IBGE e região, usados no mapa |
-| `fit_score` | Score de prioridade (0–100) calculado na consulta |
 | `meta` | Snapshot, data de geração e contagens |
 | `app.duckdb` | Banco local de buscas/perfis salvos |
 
-### Score de prioridade
+### Passaporte histórico e rede
 
-O `fit_score` (0–100) é uma soma explicável, não um modelo de IA:
+O endpoint `/api/cnpj/:cnpj` devolve um `passaporte` com fatos, eventos datados, cobertura e resumo da rede. O endpoint `/api/rede/empresa/:cnpj` devolve nós e arestas tipadas:
 
-| Critério | Pontos |
-|---|---:|
-| Empresa ativa | 20 |
-| Mais de 3 anos de mercado | 15 |
-| E-mail informado | 15 |
-| Telefone informado | 15 |
-| Capital social ≥ R$ 100 mil | 15 |
-| Possui sócios | 10 |
-| Optante do Simples | 5 |
-| MEI | 5 |
+| Aresta | Evidência | Confiança |
+|---|---|---|
+| `socio_de` | CPF/CNPJ mascarado + nome normalizado | Alta |
+| `mesmo_email` | e-mail idêntico | Média |
+| `mesmo_telefone` | telefone idêntico | Média |
+| `mesmo_endereco` | CEP + número + complemento | Média |
+| `mesma_marca` | nome fantasia normalizado | Média |
 
-Ele serve para ordenar a lista por prioridade dentro dos filtros/perfis salvos. A fórmula é intencionalmente simples e auditável; pode ser calibrada depois com o feedback da equipe.
+Contatos repetidos são modelados como **hubs** (um nó de contato ligado a várias empresas), não como pares empresa–empresa. Um contato que aparece em muitas empresas é marcado como hub e pode representar uma contabilidade, escritório, coworking ou grupo econômico.
 
 ### Buscas salvas
 
@@ -443,13 +454,40 @@ Estimativas:
 
 > O arquivo `Estabelecimentos0.zip` sozinho tem 2,17 GB. O download usa 4 conexões e retomada; se uma falhar, rode novamente e ele continua do ponto anterior.
 
+### 7.1 Data Trust Lab (histórico)
+
+O pacote 2019 do Wayback usa um layout **fixed-width de 1.200 caracteres**, com registros `1F` (empresa/estabelecimento) e `2F` (sócio). Ele não é o CSV moderno da Receita e não é mesclado automaticamente ao banco.
+
+```bash
+# baixar (padrão: 20 arquivos; use --only=1 para um arquivo)
+npm run history:download-2019
+
+# validar por amostragem contra o snapshot local
+npm run history:validate-2019
+```
+
+O validador lê o ZIP em streaming, faz amostragem uniforme dos registros de empresa e compara CNPJ, razão social, situação, abertura, CNAE e UF com `estabelecimentos_busca`. O relatório fica em `docs/historico/2019-validacao.{json,md}` e aparece na aba **Dados**.
+
+Cobertura declarada:
+
+| Período | Camada | Uso |
+|---|---|---|
+| 2000–2018 | Reconstruído | Foto aproximada por datas de abertura/fechamento do snapshot atual |
+| 2019 | Validado | Retrato do Wayback, após validação por amostragem |
+| 2020 | Parcial | Captura incompleta; apenas complemento |
+| 2021–2022 | Sem fonte | Metadados de diretório, sem ZIP recuperável |
+| 2023-03/04 | Espelho | Casa dos Dados; validar antes de tratar como oficial |
+| 2023-05+ | Oficial | Snapshots mensais da Receita Federal |
+
 ---
 
 ## 8. Limitações conhecidas
 
 - **Amostra:** 50 mil estabelecimentos da faixa `00000000–04631960`; não é o Brasil inteiro.
 - **Simples/MEI:** a amostra tem 10.846 registros; a carga completa terá todos.
-- **Histórico:** o gráfico de nascimentos/fechamentos usa as datas do snapshot atual. O diff mensal entre snapshots (change log 2023→2026) é a próxima fase.
+- **Histórico:** o passaporte e o gráfico usam as datas do snapshot atual. O pacote 2019 está em validação; 2000–2018 é reconstrução aproximada. O change log mensal 2023→2026 é a próxima fase.
+- **Rede:** o grafo usa uma amostra limitada de empresas por sócio/contato; os totais do resumo são completos, mas o desenho não é. Não há mescla de snapshots históricos na rede ainda.
+- **Hubs:** a classificação de contabilidade/escritório/franquia é inferida por sinais (CNAE, nome, domínio, repetição) e exige curadoria manual.
 - **Mapa:** usa a malha estática do IBGE e o de–para RFB→IBGE por nome+UF. Na amostra, 3.943 de 3.955 municípios foram mapeados; na carga completa, os não encontrados devem ser revisados.
 - **CPF de sócio:** sempre mascarado pela Receita; não é possível reconstruir.
 - **Sem faturamento/nº de funcionários:** capital social não é receita.
@@ -469,6 +507,14 @@ src/
     schemas.ts         # validação Zod
     queryBuilder.ts    # SQL parametrizado
     geoQueries.ts      # mapa, mercado e timeline
+    networkQueries.ts  # sócios, contatos e resumo da rede
+    networkGraph.ts    # nós/arestas, hubs e confiança
+    passport.ts        # fatos e eventos do passaporte histórico
+  history/
+    wayback2019.ts     # parser fixed-width do pacote 2019
+    downloadWayback2019.ts
+    validateWayback2019.ts
+    coverage.ts        # matriz de cobertura histórica
   db/
     duckdb.ts          # pool de conexões analíticas
     appDb.ts           # banco local de buscas/perfis salvos
@@ -492,11 +538,18 @@ public/
 test/
   cnpj.test.ts
   queryBuilder.test.ts
+  passport.test.ts
+  networkGraph.test.ts
+  wayback2019.test.ts
+docs/
+  historico/           # relatórios de validação versionados
 data/
   sample/              # CSVs da amostra (ignorado no git)
   raw/                 # ZIPs baixados (ignorado no git)
   cnpj.duckdb          # banco analítico (ignorado no git)
   app.duckdb           # buscas/perfis salvos (ignorado no git)
+  wayback/2019/        # pacote histórico baixado (ignorado no git)
+  extracted/           # snapshot completo extraído (ignorado no git)
 ```
 
 ---

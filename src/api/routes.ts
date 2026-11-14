@@ -22,6 +22,20 @@ import {
   buildTimelineQuery,
 } from './geoQueries.js';
 import {
+  buildCompanyGraph,
+} from './networkGraph.js';
+import {
+  DEFAULT_NETWORK_LIMITS,
+  getContactCompanies,
+  getContactList,
+  getNetworkCompany,
+  getNetworkSummary,
+  getPartnerCompanies,
+  getTargetPartners,
+} from './networkQueries.js';
+import { buildPassport } from './passport.js';
+import { coveragePayload } from '../history/coverage.js';
+import {
   cnpjParamsSchema,
   dashboardSchema,
   exportSchema,
@@ -29,6 +43,7 @@ import {
   mapaSchema,
   mercadoSchema,
   municipiosQuerySchema,
+  networkQuerySchema,
   savedSearchSchema,
   searchSchema,
   statsSchema,
@@ -132,6 +147,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const rows = await query<{ key: string; value: string }>('SELECT key, value FROM meta');
     return metaToObject(rows);
   });
+
+  app.get('/api/historico/cobertura', async () => coveragePayload());
 
   app.get('/api/opcoes', async () => {
     const [ufs, cnaes, naturezas, situacoes, portes] = await Promise.all([
@@ -416,7 +433,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         capital_social: asNullableNumber(row.capital_social),
         idade_anos: asNullableNumber(row.idade_anos),
         socios_count: asNumber(row.socios_count),
-        fit_score: asNumber(row.fit_score),
       })),
       total,
       page: filters.page,
@@ -473,7 +489,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const base = normalized.slice(0, 8);
 
-    const [empresaRows, estabelecimentoRows, socioRows, simplesRows] =
+    const [empresaRows, estabelecimentoRows, socioRows, simplesRows, redeResumo] =
       await Promise.all([
         query<Record<string, unknown>>(
           `SELECT e.*, n.descricao AS natureza_descricao,
@@ -529,11 +545,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           'SELECT * FROM simples WHERE cnpj_base = $base LIMIT 1',
           { base },
         ),
+        getNetworkSummary(base),
       ]);
 
     if (empresaRows.length === 0 && estabelecimentoRows.length === 0) {
       return reply.status(404).send({ error: 'CNPJ não encontrado na base' });
     }
+
+    const estabelecimentos = estabelecimentoRows.map((row) => ({
+      ...row,
+      cnpj_formatado: formatCnpj(String(row.cnpj ?? '')),
+      idade_anos: asNullableNumber(row.idade_anos),
+    }));
+    const snapshot = String(
+      empresaRows[0]?.snapshot ?? estabelecimentoRows[0]?.snapshot ?? config.snapshot,
+    );
+    const passaporte = buildPassport({
+      empresa: empresaRows[0] ?? null,
+      estabelecimentos: estabelecimentoRows,
+      socios: socioRows,
+      simples: simplesRows[0] ?? null,
+      rede: redeResumo,
+      snapshot,
+    });
 
     return {
       cnpj: normalized.length === 14 ? normalized : null,
@@ -545,14 +579,91 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             capital_social: asNullableNumber(empresaRows[0].capital_social),
           }
         : null,
-      estabelecimentos: estabelecimentoRows.map((row) => ({
-        ...row,
-        cnpj_formatado: formatCnpj(String(row.cnpj ?? '')),
-        idade_anos: asNullableNumber(row.idade_anos),
-      })),
+      estabelecimentos,
       socios: socioRows,
       socios_count: socioRows.length,
       simples: simplesRows[0] ?? null,
+      rede_resumo: redeResumo,
+      passaporte,
+    };
+  });
+
+  app.get('/api/rede/empresa/:cnpj', async (request, reply) => {
+    const params = cnpjParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: 'CNPJ inválido' });
+    }
+    const queryParams = networkQuerySchema.safeParse(request.query);
+    if (!queryParams.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: queryParams.error.flatten(),
+      });
+    }
+
+    const normalized = normalizeCnpj(params.data.cnpj);
+    if (normalized.length !== 14 && normalized.length !== 8) {
+      return reply.status(400).send({ error: 'Informe 8 ou 14 caracteres de CNPJ' });
+    }
+    if (normalized.length === 14 && !isValidCnpj(normalized)) {
+      return reply.status(400).send({ error: 'Dígito verificador do CNPJ inválido' });
+    }
+
+    const base = normalized.slice(0, 8);
+    const target = await getNetworkCompany(base);
+    if (!target) {
+      return reply.status(404).send({ error: 'CNPJ não encontrado na base' });
+    }
+
+    const limits = {
+      partnerLimit: queryParams.data.parceiros,
+      partnerCompanyLimit: queryParams.data.empresas_por_parceiro,
+      contactLimit: queryParams.data.contatos,
+      contactCompanyLimit: queryParams.data.empresas_por_contato,
+      hubMin: queryParams.data.hub_min,
+    };
+    const [partners, partnerCompanies, contacts, contactCompanies, resumo] =
+      await Promise.all([
+        getTargetPartners(base),
+        getPartnerCompanies(base, limits),
+        getContactList(base, limits),
+        getContactCompanies(base, limits),
+        getNetworkSummary(base, limits.hubMin),
+      ]);
+
+    const graph = buildCompanyGraph({
+      target,
+      partners,
+      partnerCompanies,
+      contacts,
+      contactCompanies,
+      limits,
+    });
+
+    return {
+      centro: {
+        cnpj_base: target.cnpj_base,
+        cnpj: normalized.length === 14 ? normalized : target.cnpj,
+        cnpj_formatado: formatCnpj(String(target.cnpj ?? normalized)),
+        razao_social: target.razao_social,
+      },
+      resumo: {
+        ...resumo,
+        empresas_no_grafo: graph.empresas.length,
+        socios_no_grafo: graph.nodes.filter((node) => node.tipo === 'socio').length,
+        contatos_no_grafo: graph.nodes.filter(
+          (node) => node.tipo !== 'empresa' && node.tipo !== 'socio',
+        ).length,
+      },
+      nodes: graph.nodes,
+      edges: graph.edges,
+      empresas: graph.empresas,
+      limites: limits,
+      cobertura: {
+        snapshot: config.snapshot,
+        observacao:
+          'Rede construída a partir do snapshot atual. Contatos repetidos são hubs; não há pares empresa–empresa quando o contato é muito compartilhado.',
+      },
     };
   });
 
@@ -597,7 +708,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       'Telefone 2',
       'Capital social',
       'Nº de sócios',
-      'Score de prioridade',
       'Porte',
       'Natureza jurídica',
       'Simples',
@@ -630,7 +740,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             row.telefone2 ?? '',
             csvValue(row.capital_social),
             row.socios_count ?? '',
-            row.fit_score ?? '',
             row.porte_descricao ?? '',
             row.natureza_descricao ?? '',
             row.opcao_simples ?? '',

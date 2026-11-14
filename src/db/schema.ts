@@ -237,6 +237,92 @@ export const EMPTY_SIMPLES_SQL = `CREATE OR REPLACE TABLE simples (
   snapshot VARCHAR
 )`;
 
+/**
+ * Contatos normalizados por empresa (CNPJ base).
+ *
+ * Esta tabela é a base do mapa de ligações: cada linha liga uma empresa a um
+ * e-mail, telefone, endereço ou marca. Consultas de rede fazem join por
+ * (tipo, valor) em vez de varrer estabelecimentos em tempo de request.
+ */
+export const REDE_CONTATOS_SQL = `CREATE OR REPLACE TABLE rede_contatos AS
+WITH base AS (
+  SELECT
+    cnpj_base,
+    lower(trim(email)) AS email,
+    ddd1,
+    ddd2,
+    regexp_replace(coalesce(ddd1, '') || coalesce(telefone1, ''), '[^0-9]', '', 'g') AS telefone1,
+    regexp_replace(coalesce(ddd2, '') || coalesce(telefone2, ''), '[^0-9]', '', 'g') AS telefone2,
+    regexp_replace(coalesce(cep, ''), '[^0-9]', '', 'g') AS cep,
+    normalize_text(coalesce(logradouro, '')) AS logradouro_norm,
+    normalize_text(coalesce(numero, '')) AS numero_norm,
+    normalize_text(coalesce(complemento, '')) AS complemento_norm,
+    trim(concat_ws(' ', tipo_logradouro, logradouro, numero, complemento, bairro, cep)) AS endereco_rotulo,
+    nome_fantasia,
+    nome_fantasia_busca
+  FROM estabelecimentos
+),
+emails AS (
+  SELECT cnpj_base, 'email' AS tipo, email AS valor, any_value(email) AS rotulo
+  FROM base
+  WHERE email IS NOT NULL
+    AND email <> ''
+    AND email LIKE '%@%'
+    AND email NOT IN ('0', '-', 'nao tem', 'nao possui', 'nenhum', 'sem email')
+    AND regexp_matches(email, '^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$')
+  GROUP BY 1, 2, 3
+),
+telefones AS (
+  SELECT cnpj_base, 'telefone' AS tipo, telefone1 AS valor,
+         any_value(trim(coalesce(ddd1, '') || ' ' || coalesce(telefone1, ''))) AS rotulo
+  FROM base
+  WHERE length(telefone1) BETWEEN 10 AND 11
+    AND telefone1 NOT IN (
+      '0000000000', '00000000000',
+      '1111111111', '11111111111',
+      '9999999999', '99999999999'
+    )
+  GROUP BY 1, 2, 3
+  UNION ALL
+  SELECT cnpj_base, 'telefone' AS tipo, telefone2 AS valor,
+         any_value(trim(coalesce(ddd2, '') || ' ' || coalesce(telefone2, ''))) AS rotulo
+  FROM base
+  WHERE length(telefone2) BETWEEN 10 AND 11
+    AND telefone2 NOT IN (
+      '0000000000', '00000000000',
+      '1111111111', '11111111111',
+      '9999999999', '99999999999'
+    )
+  GROUP BY 1, 2, 3
+),
+enderecos AS (
+  SELECT
+    cnpj_base,
+    'endereco' AS tipo,
+    logradouro_norm || '|' || numero_norm || '|' || complemento_norm || '|' || cep AS valor,
+    any_value(endereco_rotulo) AS rotulo
+  FROM base
+  WHERE length(cep) = 8
+    AND cep <> '00000000'
+    AND numero_norm NOT IN ('', '0', 's n', 'sn', 's/n')
+  GROUP BY 1, 2, 3
+),
+marcas AS (
+  SELECT cnpj_base, 'marca' AS tipo, nome_fantasia_busca AS valor, any_value(trim(nome_fantasia)) AS rotulo
+  FROM base
+  WHERE nome_fantasia_busca IS NOT NULL
+    AND length(nome_fantasia_busca) >= 4
+    AND nome_fantasia_busca NOT IN ('matriz', 'filial', 'loja', 'comercio', 'servicos', 'empresa', 'grupo')
+  GROUP BY 1, 2, 3
+)
+SELECT * FROM emails
+UNION ALL
+SELECT * FROM telefones
+UNION ALL
+SELECT * FROM enderecos
+UNION ALL
+SELECT * FROM marcas`;
+
 export const SEARCH_TABLE_SQL = `CREATE OR REPLACE TABLE estabelecimentos_busca AS
 SELECT
   e.cnpj,
@@ -330,6 +416,8 @@ export const INDEX_SQL = [
   `CREATE INDEX IF NOT EXISTS ix_busca_cnpj ON estabelecimentos_busca(cnpj)`,
   `CREATE INDEX IF NOT EXISTS ix_busca_base ON estabelecimentos_busca(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_busca_municipio_ibge ON estabelecimentos_busca(municipio_ibge)`,
+  `CREATE INDEX IF NOT EXISTS ix_rede_contatos_valor ON rede_contatos(tipo, valor)`,
+  `CREATE INDEX IF NOT EXISTS ix_rede_contatos_base ON rede_contatos(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_empresas_base ON empresas(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_estabelecimentos_base ON estabelecimentos(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_socios_base ON socios(cnpj_base)`,
