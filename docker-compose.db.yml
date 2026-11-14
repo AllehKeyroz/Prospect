@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: prospect-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-prospect}
+      POSTGRES_USER: ${POSTGRES_USER:-prospect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospect_dev}
+    ports:
+      - "5433:5432"
+    volumes:
+      - prospect_pgdata:/var/lib/postgresql/data
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_connections=80
+
+volumes:
+  prospect_pgdata:

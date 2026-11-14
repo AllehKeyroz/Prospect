@@ -17,6 +17,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/src ./src
 COPY --from=build /app/public ./public
 COPY --from=build /app/docs ./docs
+COPY --from=build /app/db ./db
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 EXPOSE 3000

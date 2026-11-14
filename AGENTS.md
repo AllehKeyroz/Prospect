@@ -1,6 +1,8 @@
 # AGENTS.md
 
-Internal CNPJ market-intelligence app: Fastify + DuckDB API, static HTML/JS UI, MapLibre. Data comes from Receita Federal open CNPJ files. Not a public SaaS.
+Internal CNPJ market-intelligence app: Fastify API, static HTML/JS UI, MapLibre. Data comes from Receita Federal open CNPJ files. Not a public SaaS.
+
+**Database direction:** PostgreSQL 17 is the target primary database (self-hosted/EasyPanel). DuckDB is the current legacy runtime store while the query layer is migrated. New structural work belongs in `db/migrations/001_init.sql` and `db/README.md`, not only in the DuckDB schema.
 
 ## Run and verify
 
@@ -17,6 +19,7 @@ npm run dev                 # http://localhost:3000
 - Verification order: `npm run typecheck && npm test && npm run build`. There is no lint script.
 - Single test: `npx vitest run test/queryBuilder.test.ts`.
 - Frontend syntax check: `node --check public/app.js` (there is no frontend build).
+- PostgreSQL foundation: `npm run db:up` (local compose), then `psql "$DATABASE_URL" -f db/migrations/001_init.sql`; see `db/README.md` for EasyPanel.
 - Full snapshot: `npm run prepare:snapshot` then `npm run ingest:snapshot`. Implemented but only exercised on small inputs, not the full 7.27 GB / ~26 GB run. Do not present local results as all-Brazil.
 - Historical 2019: `npm run history:download-2019` (20 fixed-width ZIPs, ~5 GB) and `npm run history:validate-2019` (writes `docs/historico/2019-validacao.{json,md}`).
 

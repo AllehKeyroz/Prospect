@@ -63,21 +63,40 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
 |---|---|
 | Runtime | Node.js 24 + TypeScript |
 | API | Fastify 5 + Zod |
-| Banco analítico | DuckDB 2.x (embutido, arquivo local) |
+| Banco de destino | **PostgreSQL 17** (self-hosted / EasyPanel) |
+| Banco atual (legado) | DuckDB 2.x em arquivo local, até a migração das queries |
 | Ingestão | TypeScript + `yauzl`, `csv-parse`, `iconv-lite` |
 | UI | HTML + CSS + JavaScript puro |
 | Testes | Vitest |
 | Deploy | Docker / EasyPanel |
 
-### Por que DuckDB?
+### Banco de dados
 
-- É um banco colunar embutido: não precisa de um serviço separado, usuário, porta ou backup de servidor.
-- Lê e agrega 215 milhões de linhas com pouca RAM, usando disco quando necessário.
-- O arquivo do banco fica em um volume persistente; as consultas não descompactam ZIP.
-- Para uso interno (1–10 usuários), é o caminho mais enxuto.
-- Se no futuro houver muita concorrência, a camada analítica pode migrar para ClickHouse sem mudar a API.
+O banco principal será **PostgreSQL 17**, rodando como serviço self-hosted no
+EasyPanel. O DuckDB continua sendo usado temporariamente pelo app atual, mas
+não é o destino da arquitetura.
 
-**16 GB de RAM são suficientes para o MVP.** O DuckDB está limitado a 8 GB; o restante fica para o sistema, Node e cache de disco. 64 GB não é necessário para uso interno.
+A fundação já está versionada:
+
+- `docker-compose.db.yml` — PostgreSQL local;
+- `db/migrations/001_init.sql` — schemas `core`, `read`, `app`, `history` e `enrich`;
+- `db/README.md` — instalação no EasyPanel, dimensionamento, carga e migração.
+
+O schema já nasce com:
+
+- CNPJ como texto;
+- `core.estabelecimentos` particionada por UF;
+- `read.estabelecimentos_busca` como modelo de leitura;
+- `read.rede_contatos` para o grafo;
+- `history.change_events` para o change log;
+- `enrich.company_facts` e `enrich.company_edges` com fonte, validade, confiança e evidência.
+
+A troca efetiva das queries para PostgreSQL será feita por etapas; até lá, a
+aplicação continua funcionando com a amostra DuckDB.
+
+**Dimensionamento do PostgreSQL:** 16 GB de RAM no servidor, 4 GB para o
+serviço, 200–300 GB de disco para a carga completa. O DuckDB legado fica
+limitado a 8 GB durante a transição.
 
 ---
 
@@ -105,6 +124,9 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 
 | Comando | O que faz |
 |---|---|
+| `npm run db:up` | Sobe o PostgreSQL local para desenvolvimento |
+| `npm run db:down` | Para o PostgreSQL local (mantém o volume) |
+| `npm run db:logs` | Acompanha os logs do PostgreSQL local |
 | `npm run geo:build` | Baixa/atualiza a malha IBGE e gera os arquivos estáticos do mapa |
 | `npm run history:download-2019` | Baixa o pacote 2019 do Wayback para `data/wayback/2019/` |
 | `npm run history:validate-2019` | Valida o pacote 2019 por amostragem contra o snapshot local |
@@ -124,7 +146,11 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 |---|---|---|
 | `PORT` | `3000` | Porta da API |
 | `HOST` | `0.0.0.0` | Host de escuta |
-| `DUCKDB_PATH` | `./data/cnpj.duckdb` | Arquivo do banco analítico |
+| `DATABASE_URL` | `postgresql://prospect:prospect_dev@localhost:5433/prospect` | Conexão do PostgreSQL (destino) |
+| `POSTGRES_DB` | `prospect` | Banco do compose local |
+| `POSTGRES_USER` | `prospect` | Usuário do compose local |
+| `POSTGRES_PASSWORD` | `prospect_dev` | Senha local; trocar em produção |
+| `DUCKDB_PATH` | `./data/cnpj.duckdb` | Arquivo do DuckDB legado |
 | `APP_DB_PATH` | `./data/app.duckdb` | Banco local de buscas salvas/workspaces |
 | `DUCKDB_TEMP_DIR` | `./data/tmp` | Diretório de spill temporário do DuckDB |
 | `DATA_DIR` | `./data` | Diretório de dados/amostra |
@@ -527,9 +553,13 @@ src/
     validateWayback2019.ts
     coverage.ts        # matriz de cobertura histórica
   db/
-    duckdb.ts          # pool de conexões analíticas
-    appDb.ts           # banco local de buscas/perfis salvos
-    schema.ts          # DDL e transformações
+    duckdb.ts          # pool legado de conexões analíticas
+    appDb.ts           # banco local legado de buscas/perfis salvos
+    schema.ts          # DDL e transformações do DuckDB legado
+db/
+  migrations/
+    001_init.sql       # schema PostgreSQL (core/read/app/history/enrich)
+  README.md            # EasyPanel, dimensionamento e migração
   geo/
     buildGeo.ts        # malha IBGE + CSV de municípios (estático)
   ingest/
