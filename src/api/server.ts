@@ -5,6 +5,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { config } from '../config.js';
 import { closeDatabase, openDatabase } from '../db/duckdb.js';
+import { closeAppDb, openAppDb } from '../db/appDb.js';
 import { registerRoutes } from './routes.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
   });
 
   await openDatabase({ readOnly: true });
+  await openAppDb();
   await registerRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
@@ -59,6 +61,7 @@ async function main(): Promise<void> {
     try {
       await app.close();
       await closeDatabase();
+      await closeAppDb();
       process.exit(0);
     } catch (error) {
       app.log.error(error);

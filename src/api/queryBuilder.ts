@@ -15,6 +15,7 @@ const SORT_MAP: Record<SearchInput['sort'], string> = {
   situacao: 'situacao',
   idade: 'idade_anos',
   socios: 'socios_count',
+  fit: 'fit_score',
 };
 
 function cutoffDate(years: number): string {
@@ -68,6 +69,16 @@ export function buildWhere(filters: Partial<SearchInput | StatsInput>): WhereRes
       clauses.push('municipio_nome ILIKE $municipio_like');
       params.municipio_like = `%${filters.municipio}%`;
     }
+  }
+
+  if (filters.regiao) {
+    clauses.push('regiao = $regiao');
+    params.regiao = filters.regiao;
+  }
+
+  if (filters.municipio_ibge) {
+    clauses.push('municipio_ibge = $municipio_ibge');
+    params.municipio_ibge = filters.municipio_ibge;
   }
 
   if (filters.cnae) {
@@ -179,9 +190,20 @@ export const LIST_COLUMNS = `
   cnpj, cnpj_base, razao_social, nome_fantasia,
   situacao, situacao_descricao, data_inicio, idade_anos,
   cnae_principal, cnae_descricao, uf, municipio_codigo, municipio_nome,
+  municipio_ibge, regiao,
   bairro, cep, logradouro, numero, email, ddd1, telefone1, ddd2, telefone2,
   capital_social, porte, porte_descricao, natureza_juridica, natureza_descricao,
-  socios_count, opcao_simples, opcao_mei, matriz_filial_descricao, is_ativa, is_mais_3_anos
+  socios_count, opcao_simples, opcao_mei, matriz_filial_descricao, is_ativa, is_mais_3_anos,
+  (
+    CASE WHEN is_ativa THEN 20 ELSE 0 END
+    + CASE WHEN data_inicio <= current_date - INTERVAL 3 YEAR THEN 15 ELSE 0 END
+    + CASE WHEN email IS NOT NULL AND email <> '' THEN 15 ELSE 0 END
+    + CASE WHEN telefone1 IS NOT NULL AND telefone1 <> '' THEN 15 ELSE 0 END
+    + CASE WHEN capital_social >= 100000 THEN 15 ELSE 0 END
+    + CASE WHEN socios_count > 0 THEN 10 ELSE 0 END
+    + CASE WHEN opcao_simples = 'S' THEN 5 ELSE 0 END
+    + CASE WHEN opcao_mei = 'S' THEN 5 ELSE 0 END
+  ) AS fit_score
 `;
 
 export function buildListQuery(filters: SearchInput): WhereResult {

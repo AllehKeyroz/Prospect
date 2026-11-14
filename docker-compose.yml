@@ -8,6 +8,8 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
       DUCKDB_PATH: /data/cnpj.duckdb
+      APP_DB_PATH: /data/app.duckdb
+      DUCKDB_TEMP_DIR: /data/tmp
       DATA_DIR: /data
       MEMORY_LIMIT: 8GB
       THREADS: 8

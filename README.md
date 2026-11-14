@@ -24,8 +24,12 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
   - contato separado em **e-mail** e **telefone**;
   - cards de resumo;
   - ranking de CNAEs e UFs;
+  - **score de prioridade** explicável e ordenação por prioridade, nome, abertura, capital ou sócios;
+  - **buscas salvas** (perfis reutilizáveis);
   - ficha cadastral com estabelecimentos, sócios e Simples/MEI;
   - exportação CSV;
+  - **mapa do Brasil** com hover/clique em região, estado e cidade, lista sincronizada, métricas e raio-X competitivo;
+  - **gráfico de nascimentos e fechamentos** por ano, global e por território;
   - **dashboard** com KPIs e gráficos de situação, porte, UFs, CNAEs, cidades, aberturas, idade, capital e número de sócios.
 - Testes unitários de CNPJ (numérico e alfanumérico) e do query builder.
 
@@ -96,6 +100,7 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 
 | Comando | O que faz |
 |---|---|
+| `npm run geo:build` | Baixa/atualiza a malha IBGE e gera os arquivos estáticos do mapa |
 | `npm run sample` | Baixa dimensões + amostra do shard 1 e grava em `data/sample/` |
 | `npm run ingest:sample` | Cria/recria `data/cnpj.duckdb` a partir da amostra |
 | `npm run dev` | API + UI em modo desenvolvimento (`tsx watch`) |
@@ -112,7 +117,8 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 |---|---|---|
 | `PORT` | `3000` | Porta da API |
 | `HOST` | `0.0.0.0` | Host de escuta |
-| `DUCKDB_PATH` | `./data/cnpj.duckdb` | Arquivo do banco |
+| `DUCKDB_PATH` | `./data/cnpj.duckdb` | Arquivo do banco analítico |
+| `APP_DB_PATH` | `./data/app.duckdb` | Banco local de buscas salvas/workspaces |
 | `DUCKDB_TEMP_DIR` | `./data/tmp` | Diretório de spill temporário do DuckDB |
 | `DATA_DIR` | `./data` | Diretório de dados/amostra |
 | `MEMORY_LIMIT` | `8GB` | Limite de memória do DuckDB |
@@ -136,11 +142,17 @@ No Windows, se `npm run sample` reclamar de permissão, execute o terminal como 
 | `GET` | `/api/meta` | Metadados do banco |
 | `GET` | `/api/opcoes` | UFs, CNAEs, naturezas, situações e portes |
 | `GET` | `/api/municipios?uf=SP` | Cidades de uma UF (código RFB, nome e total) |
+| `GET` | `/api/mapa?nivel=uf` | Métricas agregadas por região, UF ou município |
+| `GET` | `/api/mercado?nivel=uf&codigo=SP` | Raio-X competitivo do território |
+| `GET` | `/api/timeline` | Nascimentos e fechamentos por ano |
 | `GET` | `/api/empresas` | Listagem com filtros, paginação e resumo |
 | `GET` | `/api/estatisticas` | Agregações por UF, CNAE, situação, porte, município ou natureza |
 | `GET` | `/api/dashboard` | KPIs e séries para o dashboard |
 | `GET` | `/api/cnpj/:cnpj` | Ficha 360º (aceita 8 ou 14 caracteres) |
 | `GET` | `/api/export.csv` | Exportação CSV com os mesmos filtros |
+| `GET` | `/api/buscas` | Lista buscas/perfis salvos |
+| `POST` | `/api/buscas` | Salva um perfil de busca |
+| `DELETE` | `/api/buscas/:id` | Exclui um perfil salvo |
 
 ### Exemplos
 
@@ -165,6 +177,18 @@ curl "http://localhost:3000/api/estatisticas?situacao=02&idade_min=3&group_by=cn
 
 # Dashboard
 curl "http://localhost:3000/api/dashboard?situacao=02&idade_min=3&uf=SP"
+
+# Mapa por UF
+curl "http://localhost:3000/api/mapa?nivel=uf&situacao=02"
+
+# Mapa por município
+curl "http://localhost:3000/api/mapa?nivel=municipio&uf=SP&situacao=02"
+
+# Raio-X competitivo
+curl "http://localhost:3000/api/mercado?nivel=uf&codigo=SP&situacao=02"
+
+# Nascimentos e fechamentos
+curl "http://localhost:3000/api/timeline?uf=SP"
 
 # Exportar CSV
 curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min=3&uf=SP"
@@ -195,8 +219,8 @@ curl -o empresas.csv "http://localhost:3000/api/export.csv?situacao=02&idade_min
 | `matriz` | `true` | Somente matriz |
 | `page` | `1` | Página |
 | `page_size` | `25` | Máximo 200 |
-| `sort` | `razao_social` | `razao_social`, `data_inicio`, `capital_social`, `uf`, `cnae`, `situacao`, `idade` |
-| `order` | `asc` | `asc` ou `desc` |
+| `sort` | `fit` | `fit` (prioridade), `razao_social`, `data_inicio`, `capital_social`, `uf`, `cnae`, `situacao`, `idade`, `socios` |
+| `order` | `desc` | `asc` ou `desc` |
 
 ### Resposta de `/api/empresas`
 
@@ -255,7 +279,31 @@ O DuckDB contém:
 | `dim_motivo` | Motivo de situação cadastral |
 | `dim_pais` | Países |
 | `estabelecimentos_busca` | Tabela denormalizada usada pela API |
+| `municipio_ibge` / `regiao` | De–para RFB → IBGE e região, usados no mapa |
+| `fit_score` | Score de prioridade (0–100) calculado na consulta |
 | `meta` | Snapshot, data de geração e contagens |
+| `app.duckdb` | Banco local de buscas/perfis salvos |
+
+### Score de prioridade
+
+O `fit_score` (0–100) é uma soma explicável, não um modelo de IA:
+
+| Critério | Pontos |
+|---|---:|
+| Empresa ativa | 20 |
+| Mais de 3 anos de mercado | 15 |
+| E-mail informado | 15 |
+| Telefone informado | 15 |
+| Capital social ≥ R$ 100 mil | 15 |
+| Possui sócios | 10 |
+| Optante do Simples | 5 |
+| MEI | 5 |
+
+Ele serve para ordenar a lista por prioridade dentro dos filtros/perfis salvos. A fórmula é intencionalmente simples e auditável; pode ser calibrada depois com o feedback da equipe.
+
+### Buscas salvas
+
+Cada busca salva funciona como um **perfil de ICP**: nome + filtros. Fica em `data/app.duckdb` (banco local, sem serviço externo) e pode ser aberta/excluída pela interface. Endpoints: `GET/POST /api/buscas` e `DELETE /api/buscas/:id`.
 
 A tabela `estabelecimentos_busca` já traz:
 
@@ -287,6 +335,7 @@ NODE_ENV=production
 PORT=3000
 HOST=0.0.0.0
 DUCKDB_PATH=/data/cnpj.duckdb
+APP_DB_PATH=/data/app.duckdb
 DUCKDB_TEMP_DIR=/data/tmp
 DATA_DIR=/data
 MEMORY_LIMIT=8GB
@@ -400,7 +449,8 @@ Estimativas:
 
 - **Amostra:** 50 mil estabelecimentos da faixa `00000000–04631960`; não é o Brasil inteiro.
 - **Simples/MEI:** a amostra tem 10.846 registros; a carga completa terá todos.
-- **Histórico:** o MVP usa um snapshot. Comparações 2023 vs. 2026 e change log ficam para a próxima fase.
+- **Histórico:** o gráfico de nascimentos/fechamentos usa as datas do snapshot atual. O diff mensal entre snapshots (change log 2023→2026) é a próxima fase.
+- **Mapa:** usa a malha estática do IBGE e o de–para RFB→IBGE por nome+UF. Na amostra, 3.943 de 3.955 municípios foram mapeados; na carga completa, os não encontrados devem ser revisados.
 - **CPF de sócio:** sempre mascarado pela Receita; não é possível reconstruir.
 - **Sem faturamento/nº de funcionários:** capital social não é receita.
 - **CNPJ alfanumérico:** suportado como texto; validação de DV inclusa.
@@ -418,9 +468,13 @@ src/
     routes.ts          # endpoints
     schemas.ts         # validação Zod
     queryBuilder.ts    # SQL parametrizado
+    geoQueries.ts      # mapa, mercado e timeline
   db/
-    duckdb.ts          # pool de conexões
+    duckdb.ts          # pool de conexões analíticas
+    appDb.ts           # banco local de buscas/perfis salvos
     schema.ts          # DDL e transformações
+  geo/
+    buildGeo.ts        # malha IBGE + CSV de municípios (estático)
   ingest/
     makeSample.ts      # baixa e monta a amostra
     load.ts            # carga do CSV no DuckDB
@@ -433,13 +487,16 @@ public/
   index.html
   styles.css
   app.js
+  geo/                 # malhas IBGE e de-para estáticos
+  vendor/              # MapLibre local (sem CDN)
 test/
   cnpj.test.ts
   queryBuilder.test.ts
 data/
   sample/              # CSVs da amostra (ignorado no git)
   raw/                 # ZIPs baixados (ignorado no git)
-  cnpj.duckdb          # banco (ignorado no git)
+  cnpj.duckdb          # banco analítico (ignorado no git)
+  app.duckdb           # buscas/perfis salvos (ignorado no git)
 ```
 
 ---

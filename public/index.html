@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0d5c63" />
     <title>CNPJ Prospect — Análise de mercado e concorrentes</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/vendor/maplibre-gl.css" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -25,11 +26,108 @@
 
     <main class="container">
       <nav class="tabs" aria-label="Navegação principal">
-        <button type="button" class="tab active" data-view="search">Busca</button>
+        <button type="button" class="tab active" data-view="mapa">Mapa</button>
+        <button type="button" class="tab" data-view="search">Busca</button>
         <button type="button" class="tab" data-view="dashboard">Dashboard</button>
       </nav>
 
-      <section id="view-search" class="view">
+      <section id="view-mapa" class="view" hidden>
+        <section class="panel map-filters-panel">
+          <form id="map-filters" class="map-filter-grid" autocomplete="off">
+            <div class="field map-level-field">
+              <label>Nível</label>
+              <div class="segmented" id="map-level">
+                <button type="button" data-level="regiao">Região</button>
+                <button type="button" data-level="uf" class="active">Estado</button>
+                <button type="button" data-level="municipio">Cidade</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="map-metric">Métrica do mapa</label>
+              <select id="map-metric" name="metric">
+                <option value="estabelecimentos">Estabelecimentos</option>
+                <option value="ativas">Ativas</option>
+                <option value="aberturas_12m">Aberturas 12m</option>
+                <option value="fechamentos_12m">Fechamentos 12m</option>
+                <option value="saldo_12m">Saldo 12m</option>
+                <option value="idade_media">Idade média</option>
+                <option value="capital_mediano">Capital mediano</option>
+                <option value="simples">Simples</option>
+                <option value="mei">MEI</option>
+                <option value="com_email">Com e-mail</option>
+                <option value="com_telefone">Com telefone</option>
+              </select>
+            </div>
+            <div class="field field-wide">
+              <label for="map-cnae">CNAE (código ou nome)</label>
+              <select id="map-cnae" name="cnae" data-searchable="true" data-search-placeholder="Código ou nome do CNAE">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="map-situacao">Situação</label>
+              <select id="map-situacao" name="situacao">
+                <option value="">Todas</option>
+                <option value="02">Ativa</option>
+                <option value="08">Baixada</option>
+                <option value="04">Inapta</option>
+                <option value="03">Suspensa</option>
+                <option value="01">Nula</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="map-idade">Idade mín. (anos)</label>
+              <input id="map-idade" name="idade_min" type="number" min="0" max="150" value="0" />
+            </div>
+            <div class="field checks">
+              <label class="check"><input type="checkbox" id="map-simples" name="simples" /> Simples</label>
+              <label class="check"><input type="checkbox" id="map-mei" name="mei" /> MEI</label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-primary">Aplicar</button>
+              <button type="button" class="btn" id="map-clear">Limpar</button>
+            </div>
+          </form>
+        </section>
+
+        <div class="map-layout">
+          <section class="panel map-panel">
+            <div id="map"></div>
+            <div id="map-tooltip" class="map-tooltip"></div>
+            <div id="map-legend" class="map-legend"></div>
+            <div id="map-loading" class="map-loading">Carregando mapa…</div>
+          </section>
+
+          <aside class="map-side">
+            <section class="panel map-territory">
+              <p class="eyebrow">Território</p>
+              <h2 id="map-territory-name">Brasil</h2>
+              <p id="map-territory-subtitle" class="muted">Passe o mouse ou clique no mapa</p>
+              <div id="map-kpis" class="map-kpis"></div>
+            </section>
+
+            <section class="panel map-list-panel">
+              <div class="panel-head">
+                <h3>Empresas</h3>
+                <button type="button" class="btn btn-ghost btn-small" id="map-see-all">Ver mais</button>
+              </div>
+              <div id="map-company-list" class="map-company-list"></div>
+            </section>
+
+            <section class="panel map-market-panel">
+              <h3>Raio-X competitivo</h3>
+              <div id="map-market"><p class="muted small">Clique em um território para carregar.</p></div>
+            </section>
+
+            <section class="panel map-timeline-panel">
+              <h3>Nascimentos e fechamentos</h3>
+              <div id="map-timeline" class="chart chart-line"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-search" class="view" hidden>
         <section class="panel filters-panel">
           <form id="filters" autocomplete="off">
             <div class="filters-grid">
@@ -130,6 +228,7 @@
               <div class="actions">
                 <button type="submit" class="btn btn-primary">Buscar</button>
                 <button type="button" class="btn" id="clear">Limpar</button>
+                <button type="button" class="btn" id="save-search">Salvar busca</button>
                 <button type="button" class="btn btn-ghost" id="export">Exportar CSV</button>
               </div>
             </div>
@@ -151,7 +250,17 @@
                 <h2>Empresas</h2>
                 <p id="result-info">Informe os filtros e clique em buscar.</p>
               </div>
-              <div class="pagination" id="pagination-top"></div>
+              <div class="results-tools">
+                <label for="sort">Ordenar por</label>
+                <select id="sort">
+                  <option value="fit" selected>Prioridade</option>
+                  <option value="razao_social">Nome</option>
+                  <option value="data_inicio">Abertura recente</option>
+                  <option value="capital_social">Capital</option>
+                  <option value="socios">Sócios</option>
+                </select>
+                <div class="pagination" id="pagination-top"></div>
+              </div>
             </div>
 
             <div class="table-wrap">
@@ -166,12 +275,13 @@
                     <th>Abertura</th>
                     <th>Capital</th>
                     <th>Sócios</th>
+                    <th>Score</th>
                     <th>E-mail</th>
                     <th>Telefone</th>
                   </tr>
                 </thead>
                 <tbody id="results-body">
-                  <tr><td colspan="10" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="11" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -187,6 +297,12 @@
             <section class="panel side-panel">
               <h3>Top UFs</h3>
               <div id="stats-uf" class="stats"><p class="muted">—</p></div>
+            </section>
+            <section class="panel side-panel">
+              <h3>Buscas salvas</h3>
+              <div id="saved-searches" class="saved-searches">
+                <p class="muted small">Nenhuma busca salva.</p>
+              </div>
             </section>
             <section class="panel side-panel note">
               <h3>Sobre a amostra</h3>
@@ -285,7 +401,7 @@
             <div id="chart-municipios" class="chart"></div>
           </article>
           <article class="panel chart-panel chart-panel-wide">
-            <h3>Aberturas por ano</h3>
+            <h3>Nascimentos e fechamentos</h3>
             <div id="chart-aberturas" class="chart chart-line"></div>
           </article>
           <article class="panel chart-panel">
@@ -314,6 +430,27 @@
         <button type="button" class="icon-btn" id="close-detail" aria-label="Fechar">×</button>
       </div>
       <div id="detail-content" class="detail-content"></div>
+    </dialog>
+
+    <dialog id="save-search-dialog" class="save-dialog">
+      <div class="detail-head">
+        <div>
+          <p class="eyebrow">Perfil de busca</p>
+          <h2>Salvar busca</h2>
+          <p class="muted small">Os filtros atuais serão salvos como um perfil reutilizável.</p>
+        </div>
+        <button type="button" class="icon-btn" id="close-save-search" aria-label="Fechar">×</button>
+      </div>
+      <form id="save-search-form" class="save-form">
+        <div class="field">
+          <label for="save-search-name">Nome do perfil</label>
+          <input id="save-search-name" maxlength="120" required placeholder="Ex.: Restaurantes em Campinas" />
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Salvar</button>
+          <button type="button" class="btn" id="cancel-save-search">Cancelar</button>
+        </div>
+      </form>
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>

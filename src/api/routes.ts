@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { query, queryOne } from '../db/duckdb.js';
+import {
+  createSavedSearch,
+  deleteSavedSearch,
+  listSavedSearches,
+} from '../db/appDb.js';
 import { formatCnpj, isValidCnpj, normalizeCnpj } from '../lib/cnpj.js';
 import { toCsvLine } from '../lib/text.js';
 import {
@@ -12,12 +17,22 @@ import {
   toSearchInput,
 } from './queryBuilder.js';
 import {
+  buildMapQuery,
+  buildMarketQueries,
+  buildTimelineQuery,
+} from './geoQueries.js';
+import {
   cnpjParamsSchema,
   dashboardSchema,
   exportSchema,
+  idParamsSchema,
+  mapaSchema,
+  mercadoSchema,
   municipiosQuerySchema,
+  savedSearchSchema,
   searchSchema,
   statsSchema,
+  timelineSchema,
 } from './schemas.js';
 
 function asNumber(value: unknown): number {
@@ -42,6 +57,30 @@ function dashboardRows(
     ...row,
     total: asNumber(row.total),
     ...(row.ordem !== undefined ? { ordem: asNumber(row.ordem) } : {}),
+  }));
+}
+
+function mapRows(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return rows.map((row) => ({
+    ...row,
+    estabelecimentos: asNumber(row.estabelecimentos),
+    ativas: asNumber(row.ativas),
+    aberturas_12m: asNumber(row.aberturas_12m),
+    fechamentos_12m: asNumber(row.fechamentos_12m),
+    simples: asNumber(row.simples),
+    mei: asNumber(row.mei),
+    com_email: asNumber(row.com_email),
+    com_telefone: asNumber(row.com_telefone),
+    idade_media: asNullableNumber(row.idade_media),
+    capital_mediano: asNullableNumber(row.capital_mediano),
+  }));
+}
+
+function timelineRows(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return rows.map((row) => ({
+    periodo: row.periodo,
+    nascimentos: asNumber(row.nascimentos),
+    fechamentos: asNumber(row.fechamentos),
   }));
 }
 
@@ -227,6 +266,126 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get('/api/mapa', async (request, reply) => {
+    const parsed = mapaSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const queryDef = buildMapQuery(parsed.data);
+    const rows = await query<Record<string, unknown>>(queryDef.sql, queryDef.params);
+    return {
+      nivel: parsed.data.nivel,
+      data: mapRows(rows),
+    };
+  });
+
+  app.get('/api/mercado', async (request, reply) => {
+    const parsed = mercadoSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const queries = buildMarketQueries(parsed.data);
+    const [totaisRow, hhiRow, players, cnaes, timeline] = await Promise.all([
+      queryOne<Record<string, unknown>>(queries.totais.sql, queries.totais.params),
+      queryOne<Record<string, unknown>>(queries.hhi.sql, queries.hhi.params),
+      query<Record<string, unknown>>(queries.players.sql, queries.players.params),
+      query<Record<string, unknown>>(queries.cnaes.sql, queries.cnaes.params),
+      query<Record<string, unknown>>(queries.timeline.sql, queries.timeline.params),
+    ]);
+
+    return {
+      territorio: {
+        nivel: parsed.data.nivel,
+        codigo: parsed.data.codigo,
+      },
+      totais: {
+        estabelecimentos: asNumber(totaisRow?.estabelecimentos),
+        ativas: asNumber(totaisRow?.ativas),
+        aberturas_12m: asNumber(totaisRow?.aberturas_12m),
+        fechamentos_12m: asNumber(totaisRow?.fechamentos_12m),
+        idade_media: asNullableNumber(totaisRow?.idade_media),
+        capital_mediano: asNullableNumber(totaisRow?.capital_mediano),
+        simples: asNumber(totaisRow?.simples),
+        mei: asNumber(totaisRow?.mei),
+        com_email: asNumber(totaisRow?.com_email),
+        com_telefone: asNumber(totaisRow?.com_telefone),
+      },
+      hhi: asNullableNumber(hhiRow?.hhi),
+      players: players.map((row) => ({
+        ...row,
+        estabelecimentos: asNumber(row.estabelecimentos),
+        capital_social: asNullableNumber(row.capital_social),
+      })),
+      cnaes: cnaes.map((row) => ({
+        ...row,
+        total: asNumber(row.total),
+      })),
+      timeline: timelineRows(timeline),
+    };
+  });
+
+  app.get('/api/timeline', async (request, reply) => {
+    const parsed = timelineSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Parâmetros inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const queryDef = buildTimelineQuery(parsed.data);
+    const rows = await query<Record<string, unknown>>(queryDef.sql, queryDef.params);
+    return {
+      granularidade: parsed.data.granularidade,
+      data: timelineRows(rows),
+    };
+  });
+
+  app.get('/api/buscas', async () => {
+    const rows = await listSavedSearches();
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        filters: JSON.parse(row.filters) as Record<string, string>,
+        created_at: row.created_at,
+      })),
+    };
+  });
+
+  app.post('/api/buscas', async (request, reply) => {
+    const parsed = savedSearchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Dados inválidos',
+        details: parsed.error.flatten(),
+      });
+    }
+    const row = await createSavedSearch(parsed.data.name, parsed.data.filters);
+    return reply.status(201).send({
+      data: {
+        id: row.id,
+        name: row.name,
+        filters: JSON.parse(row.filters),
+      },
+    });
+  });
+
+  app.delete('/api/buscas/:id', async (request, reply) => {
+    const parsed = idParamsSchema.safeParse(request.params);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'ID inválido' });
+    }
+    await deleteSavedSearch(parsed.data.id);
+    return { ok: true };
+  });
+
   app.get('/api/empresas', async (request, reply) => {
     const parsed = searchSchema.safeParse(request.query);
     if (!parsed.success) {
@@ -257,6 +416,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         capital_social: asNullableNumber(row.capital_social),
         idade_anos: asNullableNumber(row.idade_anos),
         socios_count: asNumber(row.socios_count),
+        fit_score: asNumber(row.fit_score),
       })),
       total,
       page: filters.page,
@@ -437,6 +597,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       'Telefone 2',
       'Capital social',
       'Nº de sócios',
+      'Score de prioridade',
       'Porte',
       'Natureza jurídica',
       'Simples',
@@ -469,6 +630,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             row.telefone2 ?? '',
             csvValue(row.capital_social),
             row.socios_count ?? '',
+            row.fit_score ?? '',
             row.porte_descricao ?? '',
             row.natureza_descricao ?? '',
             row.opcao_simples ?? '',

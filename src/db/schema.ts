@@ -119,6 +119,49 @@ FROM ${readCsv(file, encoding)}
 GROUP BY 1`;
 }
 
+export function ibgeMunicipiosSql(file: string): string {
+  return `CREATE OR REPLACE TABLE ibge_municipios AS
+SELECT
+  trim(codigo) AS codigo,
+  nome,
+  trim(uf) AS uf,
+  regiao,
+  trim(regiao_codigo) AS regiao_codigo
+FROM read_csv(${sqlString(file)}, header=true, all_varchar=true, delim=',', quote='"')`;
+}
+
+export const MUNICIPIO_IBGE_SQL = `CREATE OR REPLACE TABLE dim_municipio_ibge AS
+WITH rfb AS (
+  SELECT DISTINCT
+    e.municipio_codigo AS municipio_rfb,
+    e.uf,
+    m.descricao AS nome_rfb
+  FROM estabelecimentos e
+  LEFT JOIN dim_municipio m ON m.codigo = e.municipio_codigo
+  WHERE e.municipio_codigo IS NOT NULL
+    AND e.uf IS NOT NULL
+    AND e.uf <> ''
+),
+exact AS (
+  SELECT
+    r.municipio_rfb,
+    r.uf,
+    i.codigo AS municipio_ibge,
+    i.nome AS nome_ibge,
+    i.regiao,
+    row_number() OVER (
+      PARTITION BY r.municipio_rfb, r.uf
+      ORDER BY i.codigo
+    ) AS rn
+  FROM rfb r
+  JOIN ibge_municipios i
+    ON i.uf = r.uf
+   AND normalize_text(i.nome) = normalize_text(r.nome_rfb)
+)
+SELECT municipio_rfb, uf, municipio_ibge, nome_ibge, regiao
+FROM exact
+WHERE rn = 1`;
+
 export const EMPTY_EMPRESAS_SQL = `CREATE OR REPLACE TABLE empresas (
   cnpj_base VARCHAR,
   razao_social VARCHAR,
@@ -217,6 +260,8 @@ SELECT
   e.cep,
   e.uf,
   e.municipio_codigo,
+  mi.municipio_ibge,
+  mi.regiao,
   e.ddd1,
   e.telefone1,
   e.ddd2,
@@ -273,6 +318,9 @@ LEFT JOIN (
 ) sc ON sc.cnpj_base = e.cnpj_base
 LEFT JOIN dim_cnae c ON c.codigo = e.cnae_principal
 LEFT JOIN dim_municipio m ON m.codigo = e.municipio_codigo
+LEFT JOIN dim_municipio_ibge mi
+  ON mi.municipio_rfb = e.municipio_codigo
+ AND mi.uf = e.uf
 LEFT JOIN dim_natureza n ON n.codigo = emp.natureza_juridica
 ORDER BY e.uf, e.cnae_principal, e.cnpj`;
 
@@ -281,6 +329,7 @@ export const INDEX_SQL = [
   // da ordenação da tabela e dos zone maps do DuckDB, sem custo extra de índice.
   `CREATE INDEX IF NOT EXISTS ix_busca_cnpj ON estabelecimentos_busca(cnpj)`,
   `CREATE INDEX IF NOT EXISTS ix_busca_base ON estabelecimentos_busca(cnpj_base)`,
+  `CREATE INDEX IF NOT EXISTS ix_busca_municipio_ibge ON estabelecimentos_busca(municipio_ibge)`,
   `CREATE INDEX IF NOT EXISTS ix_empresas_base ON empresas(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_estabelecimentos_base ON estabelecimentos(cnpj_base)`,
   `CREATE INDEX IF NOT EXISTS ix_socios_base ON socios(cnpj_base)`,

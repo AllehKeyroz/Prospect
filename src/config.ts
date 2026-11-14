@@ -12,6 +12,7 @@ export const config = {
   port: intFromEnv('PORT', 3000),
   host: process.env.HOST ?? '0.0.0.0',
   dbPath,
+  appDbPath: path.resolve(process.env.APP_DB_PATH ?? 'data/app.duckdb'),
   dataDir: path.resolve(process.env.DATA_DIR ?? 'data'),
   tempDirectory: path.resolve(
     process.env.DUCKDB_TEMP_DIR ?? path.join(path.dirname(dbPath), 'tmp'),

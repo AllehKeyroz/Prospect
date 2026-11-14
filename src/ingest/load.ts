@@ -11,10 +11,12 @@ import {
   INDEX_SQL,
   MACRO_SQL,
   META_TABLE_SQL,
+  MUNICIPIO_IBGE_SQL,
   SEARCH_TABLE_SQL,
   dimSql,
   empresasSql,
   estabelecimentosSql,
+  ibgeMunicipiosSql,
   simplesSql,
   sociosSql,
 } from '../db/schema.js';
@@ -113,6 +115,10 @@ async function loadWithPaths(
     await exec(EMPTY_ESTABELECIMENTOS_SQL);
   }
 
+  console.log('[geo] municípios IBGE e de-para RFB');
+  await exec(ibgeMunicipiosSql(path.resolve('public/geo/municipios_ibge.csv')));
+  await exec(MUNICIPIO_IBGE_SQL);
+
   if (hasData(paths.socios)) {
     console.log('[load] socios');
     await exec(sociosSql(paths.socios, snapshot));
@@ -149,7 +155,13 @@ async function loadWithPaths(
       (SELECT count(*) FROM estabelecimentos) AS estabelecimentos,
       (SELECT count(*) FROM socios) AS socios,
       (SELECT count(*) FROM simples) AS simples,
-      (SELECT count(*) FROM estabelecimentos_busca) AS estabelecimentos_busca
+      (SELECT count(*) FROM estabelecimentos_busca) AS estabelecimentos_busca,
+      (SELECT count(*) FROM dim_municipio_ibge) AS municipios_mapeados,
+      (SELECT count(*) FROM (
+        SELECT DISTINCT municipio_codigo, uf
+        FROM estabelecimentos
+        WHERE municipio_codigo IS NOT NULL AND uf IS NOT NULL AND uf <> ''
+      )) AS municipios_rfb
   `);
 
   await insertMeta('snapshot', snapshot);

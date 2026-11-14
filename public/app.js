@@ -1,13 +1,41 @@
-﻿const $ = (id) => document.getElementById(id);
+﻿import * as maplibregl from '/vendor/maplibre-gl.mjs';
+
+if (maplibregl.setWorkerUrl) {
+  maplibregl.setWorkerUrl('/vendor/maplibre-gl-worker.mjs');
+}
+
+const $ = (id) => document.getElementById(id);
 
 const state = {
   page: 1,
   pageSize: 25,
   totalPages: 0,
+  searchSort: 'fit',
+  searchOrder: 'desc',
+  savedSearches: [],
   options: null,
+  meta: null,
   loading: false,
   dashboardLoading: false,
-  view: 'search',
+  view: 'mapa',
+  map: null,
+  mapReady: false,
+  mapLevel: 'uf',
+  mapMetric: 'estabelecimentos',
+  mapMetrics: { regiao: [], uf: [], municipio: [] },
+  mapIndexes: { regiao: new Map(), uf: new Map(), municipio: new Map() },
+  mapCache: new Map(),
+  mapCompanyCache: new Map(),
+  mapTimelineCache: new Map(),
+  mapGeo: null,
+  mapSelection: null,
+  mapSelectionRow: null,
+  mapHovered: null,
+  mapFitted: false,
+  mapPreviewTimer: null,
+  mapPreviewToken: 0,
+  mapListLimit: 6,
+  mapLoading: false,
 };
 
 const form = $('filters');
@@ -94,8 +122,8 @@ function showToast(message, type = 'info') {
   }, 4200);
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url);
+async function fetchJson(url, options) {
+  const response = await fetch(url, options);
   let payload = null;
   try {
     payload = await response.json();
@@ -373,8 +401,8 @@ function buildSearchParams() {
   const params = buildFilterParams();
   params.set('page', String(state.page));
   params.set('page_size', String(state.pageSize));
-  params.set('sort', 'razao_social');
-  params.set('order', 'asc');
+  params.set('sort', state.searchSort);
+  params.set('order', state.searchOrder);
   return params;
 }
 
@@ -390,6 +418,7 @@ function setView(view, updateHash = true) {
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.view === view);
   });
+  $('view-mapa').hidden = view !== 'mapa';
   $('view-search').hidden = view !== 'search';
   $('view-dashboard').hidden = view !== 'dashboard';
   if (updateHash) {
@@ -398,6 +427,14 @@ function setView(view, updateHash = true) {
     window.history.replaceState(null, '', url);
   }
   closeAllSelects();
+  if (view === 'mapa') {
+    void ensureMap();
+    setTimeout(() => {
+      if (!state.map) return;
+      state.map.resize();
+      if (!state.mapFitted) fitMapToBrazil();
+    }, 80);
+  }
   if (view === 'dashboard') void loadDashboard();
 }
 
@@ -419,7 +456,7 @@ async function loadOptions() {
     }
   }
 
-  for (const selectId of ['cnae', 'dash-cnae']) {
+  for (const selectId of ['cnae', 'dash-cnae', 'map-cnae']) {
     const select = $(selectId);
     for (const item of options.cnaes ?? []) {
       const option = document.createElement('option');
@@ -432,9 +469,703 @@ async function loadOptions() {
 
 async function loadMeta() {
   const meta = await fetchJson('/api/meta');
+  state.meta = meta;
   $('snapshot-badge').textContent = `Snapshot ${meta.snapshot ?? '—'}`;
   $('rows-badge').textContent = `${fmtNumber(meta.estabelecimentos)} estabelecimentos`;
   $('note-snapshot').textContent = meta.snapshot ?? '2026-10';
+}
+
+/* ------------------------------------------------------------------ */
+/* Mapa                                                                */
+/* ------------------------------------------------------------------ */
+
+const MAP_LEVEL_LABEL = { regiao: 'Região', uf: 'Estado', municipio: 'Cidade' };
+
+function mapFilterParams() {
+  const data = new FormData($('map-filters'));
+  const params = new URLSearchParams();
+  for (const [key, value] of data.entries()) {
+    if (key === 'metric') continue;
+    const text = String(value).trim();
+    if (text === '') continue;
+    if (['simples', 'mei'].includes(key)) continue;
+    params.set(key, text);
+  }
+  if ($('map-simples').checked) params.set('simples', 'true');
+  if ($('map-mei').checked) params.set('mei', 'true');
+  return params;
+}
+
+function mapTerritoryParams(selection) {
+  const params = mapFilterParams();
+  if (selection) {
+    if (selection.nivel === 'regiao') params.set('regiao', selection.codigo);
+    else if (selection.nivel === 'uf') params.set('uf', selection.codigo);
+    else params.set('municipio_ibge', selection.codigo);
+  }
+  return params;
+}
+
+function mapApiParams(selection) {
+  const params = mapFilterParams();
+  if (selection) {
+    params.set('nivel', selection.nivel);
+    params.set('codigo', selection.codigo);
+  }
+  return params;
+}
+
+function mapFeatureKey(level, props) {
+  if (level === 'regiao') return props.nome;
+  if (level === 'uf') return props.uf;
+  return props.codigo;
+}
+
+function mapFeatureName(level, props) {
+  if (level === 'municipio') return `${props.nome} / ${props.uf}`;
+  if (level === 'uf') return `${props.nome} (${props.uf})`;
+  return props.nome;
+}
+
+function mapMetricValue(row, metric) {
+  if (!row) return 0;
+  if (metric === 'saldo_12m') {
+    return Number(row.aberturas_12m ?? 0) - Number(row.fechamentos_12m ?? 0);
+  }
+  const value = Number(row[metric]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function formatMapMetric(metric, value) {
+  if (metric === 'capital_mediano') return fmtMoney(value);
+  if (metric === 'idade_media') return `${Number(value).toFixed(1)} anos`;
+  return fmtNumber(value);
+}
+
+async function ensureMap() {
+  if (state.map) {
+    state.map.resize();
+    return;
+  }
+  if (!maplibregl || !$('map')) return;
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'background',
+          type: 'background',
+          paint: { 'background-color': '#eaf0f3' },
+        },
+      ],
+    },
+    bounds: [
+      [-74, -34],
+      [-34, 6],
+    ],
+    fitBoundsOptions: { padding: 28 },
+    minZoom: 2.4,
+    maxZoom: 10,
+    attributionControl: false,
+    dragRotate: false,
+    pitchWithRotate: false,
+  });
+
+  state.map = map;
+  map.addControl(
+    new maplibregl.NavigationControl({ showCompass: false }),
+    'top-right',
+  );
+  map.on('error', (event) => console.error('map error', event.error));
+
+  map.on('load', async () => {
+    try {
+      map.resize();
+      fitMapToBrazil();
+      await setupMapLayers(map);
+    } catch (error) {
+      console.error(error);
+      showToast('Falha ao carregar o mapa.', 'error');
+      $('map-loading').hidden = true;
+    }
+  });
+}
+
+async function setupMapLayers(map) {
+  const [regioes, estados, municipios] = await Promise.all([
+    fetchJson('/geo/regioes.geojson'),
+    fetchJson('/geo/estados.geojson'),
+    fetchJson('/geo/municipios.geojson'),
+  ]);
+  state.mapGeo = { regiao: regioes, uf: estados, municipio: municipios };
+
+  for (const level of ['regiao', 'uf', 'municipio']) {
+    const visible = level === 'uf';
+    map.addSource(level, {
+      type: 'geojson',
+      data: state.mapGeo[level],
+      promoteId: 'codigo',
+    });
+    map.addLayer({
+      id: `fill-${level}`,
+      type: 'fill',
+      source: level,
+      layout: { visibility: visible ? 'visible' : 'none' },
+      paint: {
+        'fill-color': '#dbe7ea',
+        'fill-opacity': 0.78,
+      },
+    });
+    map.addLayer({
+      id: `line-${level}`,
+      type: 'line',
+      source: level,
+      layout: { visibility: visible ? 'visible' : 'none' },
+      paint: {
+        'line-color': 'rgba(255,255,255,0.9)',
+        'line-width': 0.6,
+        'line-opacity': 0.85,
+      },
+    });
+  }
+
+  state.mapReady = true;
+  $('map-loading').hidden = true;
+  fitMapToBrazil();
+  map.on('mousemove', onMapMove);
+  map.on('click', onMapClick);
+  map.getCanvas().addEventListener('mouseleave', onMapLeave);
+
+  await setMapLevel('uf');
+}
+
+async function setMapLevel(level, load = true) {
+  state.mapLevel = level;
+  document.querySelectorAll('#map-level button').forEach((button) => {
+    button.classList.toggle('active', button.dataset.level === level);
+  });
+
+  if (!state.mapReady || !state.map) return;
+
+  for (const candidate of ['regiao', 'uf', 'municipio']) {
+    const visible = candidate === level;
+    state.map.setLayoutProperty(
+      `fill-${candidate}`,
+      'visibility',
+      visible ? 'visible' : 'none',
+    );
+    state.map.setLayoutProperty(
+      `line-${candidate}`,
+      'visibility',
+      visible ? 'visible' : 'none',
+    );
+  }
+
+  clearMapHover();
+  clearMapSelection();
+  state.mapListLimit = 6;
+
+  if (load) await loadMapMetrics(level);
+  else if (state.mapIndexes[level].size > 0) applyMetricToMap();
+  resetTerritoryPreview();
+}
+
+async function loadMapMetrics(level = state.mapLevel) {
+  const params = mapFilterParams();
+  params.set('nivel', level);
+  const key = `${level}|${params.toString()}`;
+  $('map-loading').hidden = false;
+
+  try {
+    let rows = state.mapCache.get(key);
+    if (!rows) {
+      const data = await fetchJson(`/api/mapa?${params.toString()}`);
+      rows = data.data ?? [];
+      state.mapCache.set(key, rows);
+    }
+    state.mapMetrics[level] = rows;
+    state.mapIndexes[level] = new Map(rows.map((row) => [row.codigo, row]));
+    if (level === state.mapLevel) applyMetricToMap();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message, 'error');
+  } finally {
+    $('map-loading').hidden = true;
+  }
+}
+
+function applyMetricToMap() {
+  if (!state.mapReady || !state.map || !state.mapGeo) return;
+  const level = state.mapLevel;
+  const collection = state.mapGeo[level];
+  const index = state.mapIndexes[level];
+  if (!collection) return;
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const feature of collection.features) {
+    const key = mapFeatureKey(level, feature.properties);
+    const row = index.get(key);
+    const value = mapMetricValue(row, state.mapMetric);
+    feature.properties.metric = value;
+    if (Number.isFinite(value)) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  }
+
+  if (!Number.isFinite(min)) {
+    min = 0;
+    max = 1;
+  }
+  if (min === max) {
+    min = state.mapMetric === 'saldo_12m' ? Math.min(0, min) : 0;
+    max = max === 0 ? 1 : max;
+  }
+  if (state.mapMetric === 'saldo_12m') {
+    if (max <= 0) max = 1;
+    if (min >= 0) min = -1;
+  } else {
+    min = Math.min(0, min);
+  }
+
+  state.map.getSource(level).setData(collection);
+
+  const fillColor =
+    state.mapMetric === 'saldo_12m'
+      ? [
+          'interpolate',
+          ['linear'],
+          ['get', 'metric'],
+          min,
+          '#b33a3a',
+          0,
+          '#f4f6f8',
+          max,
+          '#0d5c63',
+        ]
+      : [
+          'interpolate',
+          ['linear'],
+          ['get', 'metric'],
+          min,
+          '#e8f4f5',
+          min + (max - min) * 0.5,
+          '#7fc4c8',
+          max,
+          '#0d5c63',
+        ];
+
+  state.map.setPaintProperty(`fill-${level}`, 'fill-color', fillColor);
+  state.map.setPaintProperty(`fill-${level}`, 'fill-opacity', [
+    'case',
+    ['boolean', ['feature-state', 'selected'], false],
+    1,
+    ['boolean', ['feature-state', 'hover'], false],
+    0.94,
+    0.78,
+  ]);
+  state.map.setPaintProperty(`line-${level}`, 'line-color', [
+    'case',
+    ['boolean', ['feature-state', 'selected'], false],
+    '#e8a33d',
+    ['boolean', ['feature-state', 'hover'], false],
+    '#0d5c63',
+    'rgba(255,255,255,0.9)',
+  ]);
+  state.map.setPaintProperty(`line-${level}`, 'line-width', [
+    'case',
+    ['boolean', ['feature-state', 'selected'], false],
+    2.4,
+    ['boolean', ['feature-state', 'hover'], false],
+    1.8,
+    0.6,
+  ]);
+
+  updateMapLegend(min, max, state.mapMetric);
+}
+
+function updateMapLegend(min, max, metric) {
+  const label =
+    $('map-metric').selectedOptions[0]?.textContent ?? metric;
+  const gradient =
+    metric === 'saldo_12m'
+      ? 'linear-gradient(90deg, #b33a3a, #f4f6f8, #0d5c63)'
+      : 'linear-gradient(90deg, #e8f4f5, #7fc4c8, #0d5c63)';
+  $('map-legend').innerHTML = `
+    <div class="map-legend-title">${escapeHtml(label)}</div>
+    <div class="map-legend-bar" style="background:${gradient}"></div>
+    <div class="map-legend-scale">
+      <span>${escapeHtml(formatMapMetric(metric, min))}</span>
+      <span>${escapeHtml(formatMapMetric(metric, max))}</span>
+    </div>
+    <div class="map-legend-scale"><span>${fmtNumber(state.mapMetrics[state.mapLevel]?.length ?? 0)} territórios</span></div>
+  `;
+}
+
+function fitMapToBrazil() {
+  if (!state.map) return;
+  state.map.resize();
+  const canvas = state.map.getCanvas();
+  if (!canvas.width || !canvas.height) return;
+  state.map.fitBounds(
+    [
+      [-74, -34],
+      [-34, 6],
+    ],
+    { padding: 28, animate: false },
+  );
+  state.mapFitted = true;
+}
+
+function clearMapSelection() {
+  if (state.mapSelected && state.map) {
+    state.map.setFeatureState(
+      { source: state.mapSelected.level, id: state.mapSelected.id },
+      { selected: false },
+    );
+  }
+  state.mapSelected = null;
+  state.mapSelection = null;
+  state.mapSelectionRow = null;
+}
+
+function clearMapHover() {
+  if (state.mapHovered && state.map) {
+    state.map.setFeatureState(
+      { source: state.mapHovered.level, id: state.mapHovered.id },
+      { hover: false },
+    );
+  }
+  state.mapHovered = null;
+  hideMapTooltip();
+  if (state.map) state.map.getCanvas().style.cursor = '';
+}
+
+function setMapHover(feature) {
+  const level = state.mapLevel;
+  const id = feature.id ?? feature.properties.codigo;
+  if (state.mapHovered) {
+    if (state.mapHovered.id === id && state.mapHovered.level === level) return;
+    state.map.setFeatureState(
+      { source: state.mapHovered.level, id: state.mapHovered.id },
+      { hover: false },
+    );
+  }
+  state.mapHovered = { level, id };
+  state.map.setFeatureState({ source: level, id }, { hover: true });
+  state.map.getCanvas().style.cursor = 'pointer';
+}
+
+function onMapMove(event) {
+  if (!state.mapReady || !state.map) return;
+  const layer = `fill-${state.mapLevel}`;
+  const features = state.map.queryRenderedFeatures(event.point, {
+    layers: [layer],
+  });
+  if (!features.length) {
+    clearMapHover();
+    return;
+  }
+
+  const feature = features[0];
+  const key = mapFeatureKey(state.mapLevel, feature.properties);
+  const row = state.mapIndexes[state.mapLevel].get(key);
+  setMapHover(feature);
+  updateMapTooltip(event, feature, row);
+  scheduleMapPreview(state.mapLevel, feature, row, false);
+}
+
+function onMapClick(event) {
+  if (!state.mapReady || !state.map) return;
+  const layer = `fill-${state.mapLevel}`;
+  const features = state.map.queryRenderedFeatures(event.point, {
+    layers: [layer],
+  });
+  if (!features.length) return;
+
+  const feature = features[0];
+  const level = state.mapLevel;
+  const key = mapFeatureKey(level, feature.properties);
+  const id = feature.id ?? feature.properties.codigo;
+
+  if (state.mapSelected) {
+    state.map.setFeatureState(
+      { source: state.mapSelected.level, id: state.mapSelected.id },
+      { selected: false },
+    );
+  }
+  state.mapSelected = { level, id };
+  state.map.setFeatureState({ source: level, id }, { selected: true });
+
+  state.mapSelection = {
+    nivel: level,
+    codigo: key,
+    nome: mapFeatureName(level, feature.properties),
+    uf: feature.properties.uf ?? '',
+    regiao: feature.properties.regiao ?? '',
+  };
+  state.mapListLimit = 6;
+  const row = state.mapIndexes[level].get(key);
+  state.mapSelectionRow = row ?? null;
+  scheduleMapPreview(level, feature, row, true);
+}
+
+function onMapLeave() {
+  clearMapHover();
+  if (!state.mapSelection) {
+    resetTerritoryPreview();
+    return;
+  }
+
+  const selection = state.mapSelection;
+  const token = ++state.mapPreviewToken;
+  renderMapTerritory(
+    selection.nivel,
+    selection.nome,
+    state.mapSelectionRow,
+    true,
+  );
+  loadMapCompanies(selection, state.mapListLimit, token);
+  loadMapTimeline(selection, token);
+}
+
+function updateMapTooltip(event, feature, row) {
+  const tooltip = $('map-tooltip');
+  const metric = state.mapMetric;
+  const value = mapMetricValue(row, metric);
+  const name = mapFeatureName(state.mapLevel, feature.properties);
+  tooltip.innerHTML = `
+    <h4>${escapeHtml(name)}</h4>
+    <p>${escapeHtml(MAP_LEVEL_LABEL[state.mapLevel] ?? '')} · prévia</p>
+    <div class="tooltip-row"><span>${escapeHtml($('map-metric').selectedOptions[0]?.textContent ?? metric)}</span><strong>${escapeHtml(formatMapMetric(metric, value))}</strong></div>
+    <div class="tooltip-row"><span>Estabelecimentos</span><strong>${fmtNumber(row?.estabelecimentos)}</strong></div>
+    <div class="tooltip-row"><span>Aberturas 12m</span><strong>${fmtNumber(row?.aberturas_12m)}</strong></div>
+    <div class="tooltip-row"><span>Fechamentos 12m</span><strong>${fmtNumber(row?.fechamentos_12m)}</strong></div>
+    <div class="tooltip-row"><span>Idade média</span><strong>${row?.idade_media != null ? `${Number(row.idade_media).toFixed(1)} anos` : '—'}</strong></div>
+    <div class="tooltip-hint">Clique para fixar o território</div>
+  `;
+  const panel = $('map').getBoundingClientRect();
+  const tooltipWidth = 260;
+  const tooltipHeight = 190;
+  let left = event.point.x + 16;
+  let top = event.point.y + 16;
+  if (left + tooltipWidth > panel.width) left = event.point.x - tooltipWidth - 16;
+  if (top + tooltipHeight > panel.height) top = event.point.y - tooltipHeight - 16;
+  tooltip.style.left = `${Math.max(8, left)}px`;
+  tooltip.style.top = `${Math.max(8, top)}px`;
+  tooltip.style.display = 'block';
+}
+
+function hideMapTooltip() {
+  const tooltip = $('map-tooltip');
+  if (tooltip) tooltip.style.display = 'none';
+}
+
+function scheduleMapPreview(level, feature, row, locked) {
+  const key = mapFeatureKey(level, feature.properties);
+  const selection = {
+    nivel: level,
+    codigo: key,
+    nome: mapFeatureName(level, feature.properties),
+    uf: feature.properties.uf ?? '',
+    regiao: feature.properties.regiao ?? '',
+  };
+  const token = ++state.mapPreviewToken;
+  renderMapTerritory(level, selection.nome, row, locked);
+
+  clearTimeout(state.mapPreviewTimer);
+  state.mapPreviewTimer = setTimeout(() => {
+    loadMapCompanies(selection, locked ? state.mapListLimit : 6, token);
+    loadMapTimeline(selection, token);
+    if (locked) loadMapMarket(selection, token);
+  }, 120);
+}
+
+function renderMapTerritory(level, name, row, locked) {
+  $('map-territory-name').textContent = name;
+  $('map-territory-subtitle').textContent = `${MAP_LEVEL_LABEL[level] ?? ''} · ${
+    locked ? 'selecionado' : 'prévia'
+  }`;
+  const kpis = [
+    ['Estabelecimentos', fmtNumber(row?.estabelecimentos)],
+    ['Ativas', fmtNumber(row?.ativas)],
+    ['Aberturas 12m', fmtNumber(row?.aberturas_12m)],
+    ['Fechamentos 12m', fmtNumber(row?.fechamentos_12m)],
+    [
+      'Idade média',
+      row?.idade_media != null ? `${Number(row.idade_media).toFixed(1)} anos` : '—',
+    ],
+    ['Capital mediano', row?.capital_mediano != null ? fmtMoney(row.capital_mediano) : '—'],
+    ['Simples', fmtNumber(row?.simples)],
+    ['MEI', fmtNumber(row?.mei)],
+  ];
+  $('map-kpis').innerHTML = kpis
+    .map(
+      ([label, value]) => `
+        <div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+    )
+    .join('');
+}
+
+function resetTerritoryPreview() {
+  if (state.mapSelection) return;
+  const token = ++state.mapPreviewToken;
+  const meta = state.meta ?? {};
+  $('map-territory-name').textContent = 'Brasil';
+  $('map-territory-subtitle').textContent = 'Visão geral do snapshot';
+  const kpis = [
+    ['Estabelecimentos', fmtNumber(meta.estabelecimentos)],
+    ['Empresas', fmtNumber(meta.empresas)],
+    ['Sócios', fmtNumber(meta.socios)],
+    ['Municípios mapeados', fmtNumber(meta.municipios_mapeados)],
+  ];
+  $('map-kpis').innerHTML = kpis
+    .map(
+      ([label, value]) => `
+        <div class="map-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+    )
+    .join('');
+  $('map-market').innerHTML =
+    '<p class="muted small">Clique em um território para carregar o raio-X competitivo.</p>';
+  loadMapCompanies(null, 6, token);
+  loadMapTimeline(null, token);
+}
+
+async function loadMapCompanies(selection, limit, token) {
+  const params = mapTerritoryParams(selection);
+  params.set('page_size', String(limit));
+  params.set('sort', 'razao_social');
+  params.set('order', 'asc');
+  const key = params.toString();
+
+  try {
+    let rows = state.mapCompanyCache.get(key);
+    if (!rows) {
+      const payload = await fetchJson(`/api/empresas?${key}`);
+      rows = payload.data ?? [];
+      state.mapCompanyCache.set(key, rows);
+    }
+    if (token !== state.mapPreviewToken) return;
+    renderMapCompanies(rows, limit);
+  } catch (error) {
+    console.error(error);
+    if (token === state.mapPreviewToken) {
+      $('map-company-list').innerHTML =
+        '<p class="muted small">Erro ao carregar empresas.</p>';
+    }
+  }
+}
+
+function renderMapCompanies(rows, limit) {
+  $('map-see-all').textContent = limit > 6 ? 'Ver menos' : 'Ver mais';
+  if (!rows.length) {
+    $('map-company-list').innerHTML =
+      '<p class="muted small">Nenhuma empresa com os filtros atuais.</p>';
+    return;
+  }
+  $('map-company-list').innerHTML = rows
+    .map((row) => {
+      const name = row.razao_social || row.cnpj_formatado || row.cnpj;
+      const local = [row.municipio_nome, row.uf].filter(Boolean).join(' / ');
+      const contact = row.email || firstPhone(row);
+      return `
+        <div class="map-company" data-cnpj="${escapeHtml(row.cnpj)}">
+          <div class="map-company-name">${escapeHtml(name)}</div>
+          <div class="map-company-value">${fmtNumber(row.socios_count)} sócios</div>
+          <div class="map-company-meta">${escapeHtml(row.cnae_principal ?? '')} · ${escapeHtml(local)} · ${escapeHtml(row.situacao_descricao ?? '')}</div>
+          <div class="map-company-sub">${escapeHtml(contact ?? '')} · ${row.capital_social != null ? fmtMoney(row.capital_social) : 'capital não informado'}</div>
+        </div>`;
+    })
+    .join('');
+}
+
+async function loadMapTimeline(selection, token) {
+  try {
+    const params = mapApiParams(selection);
+    const key = params.toString();
+    let rows = state.mapTimelineCache.get(key);
+    if (!rows) {
+      const payload = await fetchJson(`/api/timeline?${key}`);
+      rows = payload.data ?? [];
+      state.mapTimelineCache.set(key, rows);
+    }
+    if (token !== state.mapPreviewToken) return;
+    renderTimelineChart('map-timeline', rows);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadMapMarket(selection, token) {
+  try {
+    const params = mapApiParams(selection);
+    const payload = await fetchJson(`/api/mercado?${params.toString()}`);
+    if (token !== state.mapPreviewToken) return;
+    renderMapMarket(payload);
+  } catch (error) {
+    console.error(error);
+    if (token === state.mapPreviewToken) {
+      $('map-market').innerHTML =
+        '<p class="muted small">Não foi possível carregar o raio-X.</p>';
+    }
+  }
+}
+
+function renderMapMarket(data) {
+  const totais = data.totais ?? {};
+  const kpis = [
+    ['Estabelecimentos', fmtNumber(totais.estabelecimentos)],
+    ['Aberturas 12m', fmtNumber(totais.aberturas_12m)],
+    ['Fechamentos 12m', fmtNumber(totais.fechamentos_12m)],
+    ['HHI', data.hhi != null ? Number(data.hhi).toFixed(1) : '—'],
+    ['Idade média', totais.idade_media != null ? `${Number(totais.idade_media).toFixed(1)} anos` : '—'],
+    ['Capital mediano', totais.capital_mediano != null ? fmtMoney(totais.capital_mediano) : '—'],
+  ];
+  const cnaes = (data.cnaes ?? [])
+    .slice(0, 5)
+    .map(
+      (item) => `
+        <div class="tooltip-row">
+          <span>${escapeHtml(item.cnae_principal)} — ${escapeHtml(String(item.cnae_descricao ?? '').slice(0, 34))}</span>
+          <strong>${fmtNumber(item.total)}</strong>
+        </div>`,
+    )
+    .join('');
+  const players = (data.players ?? [])
+    .slice(0, 5)
+    .map(
+      (item) => `
+        <div class="map-company" data-cnpj="${escapeHtml(item.cnpj_base)}">
+          <div class="map-company-name">${escapeHtml(item.razao_social || item.cnpj_base)}</div>
+          <div class="map-company-value">${fmtNumber(item.estabelecimentos)} estab.</div>
+          <div class="map-company-meta">${escapeHtml(item.municipio_nome ?? '')} ${escapeHtml(item.uf ?? '')} · ${escapeHtml(item.situacao_descricao ?? '')}</div>
+          <div class="map-company-sub">${item.capital_social != null ? fmtMoney(item.capital_social) : 'capital não informado'}</div>
+        </div>`,
+    )
+    .join('');
+
+  $('map-market').innerHTML = `
+    <div class="market-kpis">
+      ${kpis
+        .map(
+          ([label, value]) =>
+            `<div class="market-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+        )
+        .join('')}
+    </div>
+    <div>
+      <p class="market-subtitle">Top CNAEs</p>
+      <div class="stats">${cnaes || '<p class="muted small">Sem dados.</p>'}</div>
+    </div>
+    <div>
+      <p class="market-subtitle">Top players</p>
+      <div class="map-company-list" style="max-height:220px">${players || '<p class="muted small">Sem dados.</p>'}</div>
+    </div>
+  `;
 }
 
 /* ------------------------------------------------------------------ */
@@ -453,7 +1184,7 @@ function renderTable(rows) {
   if (!rows.length) {
     resultsBody.innerHTML = `
       <tr>
-        <td colspan="10" class="empty">
+        <td colspan="11" class="empty">
           Nenhuma empresa encontrada com esses filtros.<br />
           <span class="small">Tente remover a idade mínima, ampliar a UF ou limpar a busca.</span>
         </td>
@@ -486,6 +1217,7 @@ function renderTable(rows) {
         ? `<div class="small" title="${escapeHtml(row.email)}">${escapeHtml(String(row.email).slice(0, 30))}</div>`
         : '<span class="muted">—</span>';
       const phone = firstPhone(row);
+      const score = Math.max(0, Math.min(100, Number(row.fit_score ?? 0)));
 
       return `
         <tr data-cnpj="${escapeHtml(row.cnpj)}">
@@ -497,6 +1229,7 @@ function renderTable(rows) {
           <td>${abertura}</td>
           <td>${row.capital_social !== null && row.capital_social !== undefined ? fmtMoney(row.capital_social) : '—'}</td>
           <td>${fmtNumber(row.socios_count ?? 0)}</td>
+          <td><span class="score-badge" title="Score de prioridade: ${score}/100">${score}</span></td>
           <td>${email}</td>
           <td>${phone ? escapeHtml(phone) : '<span class="muted">—</span>'}</td>
         </tr>`;
@@ -565,7 +1298,7 @@ async function search({ resetPage = true } = {}) {
 
   const params = buildSearchParams();
   updateSearchUrl(params);
-  resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Consultando a base…</td></tr>';
+  resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Consultando a base…</td></tr>';
   $('result-info').textContent = 'Consultando…';
 
   try {
@@ -574,6 +1307,13 @@ async function search({ resetPage = true } = {}) {
     renderTable(payload.data ?? []);
     renderPagination(payload.total_pages ?? 0);
 
+    const sortLabel = {
+      fit: 'prioridade',
+      razao_social: 'razão social',
+      data_inicio: 'abertura recente',
+      capital_social: 'capital',
+      socios: 'sócios',
+    }[state.searchSort] ?? 'prioridade';
     const info = [
       `${fmtNumber(payload.total)} estabelecimentos`,
       payload.total > 0
@@ -581,7 +1321,7 @@ async function search({ resetPage = true } = {}) {
             Math.min(payload.page * payload.page_size, payload.total),
           )}`
         : null,
-      'ordenado por razão social',
+      `ordenado por ${sortLabel}`,
     ].filter(Boolean);
     $('result-info').textContent = info.join(' · ');
 
@@ -589,7 +1329,7 @@ async function search({ resetPage = true } = {}) {
   } catch (error) {
     console.error(error);
     showToast(error.message, 'error');
-    resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Erro ao consultar a base.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Erro ao consultar a base.</td></tr>';
     $('result-info').textContent = 'Erro ao consultar a base.';
   } finally {
     state.loading = false;
@@ -866,7 +1606,89 @@ function renderLineChart(containerId, items) {
     </svg>`;
 }
 
-function renderDashboard(data) {
+function renderTimelineChart(containerId, items) {
+  const container = $(containerId);
+  const data = (items ?? [])
+    .map((item) => ({
+      ano: Number(String(item.periodo).slice(0, 4)),
+      nascimentos: Number(item.nascimentos) || 0,
+      fechamentos: Number(item.fechamentos) || 0,
+    }))
+    .filter((item) => Number.isFinite(item.ano))
+    .sort((a, b) => a.ano - b.ano);
+
+  const cutoff = new Date().getFullYear() - 30;
+  const filtered = data.filter((item) => item.ano >= cutoff);
+  if (!filtered.length) {
+    container.innerHTML =
+      '<p class="chart-empty">Sem nascimentos ou fechamentos para os filtros atuais.</p>';
+    return;
+  }
+
+  const width = Math.max(320, Math.round(container.clientWidth || 820));
+  const height = containerId === 'map-timeline' ? 210 : 240;
+  const pad = { left: 44, right: 16, top: 18, bottom: 34 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const max = Math.max(
+    ...filtered.flatMap((item) => [item.nascimentos, item.fechamentos]),
+    1,
+  );
+  const groupWidth = plotWidth / filtered.length;
+  const barWidth = Math.max(2, Math.min(11, groupWidth * 0.3));
+
+  const gridLines = [0, 0.5, 1]
+    .map((ratio) => {
+      const y = pad.top + plotHeight * ratio;
+      const value = Math.round(max * (1 - ratio));
+      return `
+        <line class="axis" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" />
+        <text class="label" x="${pad.left - 8}" y="${y + 3}" text-anchor="end">${fmtNumber(value)}</text>`;
+    })
+    .join('');
+
+  const bars = filtered
+    .map((item, index) => {
+      const center = pad.left + index * groupWidth + groupWidth / 2;
+      const birthHeight = (item.nascimentos / max) * plotHeight;
+      const deathHeight = (item.fechamentos / max) * plotHeight;
+      const birthY = pad.top + plotHeight - birthHeight;
+      const deathY = pad.top + plotHeight - deathHeight;
+      return `
+        <rect x="${center - barWidth - 1}" y="${birthY}" width="${barWidth}" height="${birthHeight}" rx="2" fill="#147d86">
+          <title>${item.ano}: ${fmtNumber(item.nascimentos)} nascimentos</title>
+        </rect>
+        <rect x="${center + 1}" y="${deathY}" width="${barWidth}" height="${deathHeight}" rx="2" fill="#b33a3a">
+          <title>${item.ano}: ${fmtNumber(item.fechamentos)} fechamentos</title>
+        </rect>`;
+    })
+    .join('');
+
+  const labelEvery = Math.max(
+    1,
+    Math.ceil(filtered.length / Math.max(4, Math.floor(width / 58))),
+  );
+  const labels = filtered
+    .map((item, index) => {
+      if (index % labelEvery !== 0 && index !== filtered.length - 1) return '';
+      const center = pad.left + index * groupWidth + groupWidth / 2;
+      return `<text class="label" x="${center}" y="${height - 10}" text-anchor="middle">${item.ano}</text>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="timeline-legend">
+      <span class="legend-item"><i class="legend-dot" style="background:#147d86"></i>Nascimentos</span>
+      <span class="legend-item"><i class="legend-dot" style="background:#b33a3a"></i>Fechamentos</span>
+    </div>
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Nascimentos e fechamentos por ano">
+      ${gridLines}
+      ${bars}
+      ${labels}
+    </svg>`;
+}
+
+function renderDashboard(data, timeline = []) {
   const totals = data.totais ?? {};
   const kpis = [
     ['Estabelecimentos', totals.estabelecimentos],
@@ -897,7 +1719,7 @@ function renderDashboard(data) {
   renderBars('chart-municipios', data.municipios ?? [], {
     label: (item) => `${item.rotulo ?? item.chave} / ${item.uf ?? ''}`,
   });
-  renderLineChart('chart-aberturas', data.aberturas ?? []);
+  renderTimelineChart('chart-aberturas', timeline);
   renderBars('chart-idades', data.idades ?? []);
   renderBars('chart-capital', data.capital ?? []);
   renderBars('chart-socios', data.socios ?? []);
@@ -924,8 +1746,11 @@ async function loadDashboard() {
   }
 
   try {
-    const data = await fetchJson(`/api/dashboard?${params.toString()}`);
-    renderDashboard(data);
+    const [data, timeline] = await Promise.all([
+      fetchJson(`/api/dashboard?${params.toString()}`),
+      fetchJson(`/api/timeline?${params.toString()}`).catch(() => ({ data: [] })),
+    ]);
+    renderDashboard(data, timeline.data ?? []);
   } catch (error) {
     console.error(error);
     showToast(error.message, 'error');
@@ -956,6 +1781,13 @@ function readUrlParams() {
   const params = new URLSearchParams(window.location.search);
   state.page = Math.max(1, Number(params.get('page') ?? 1) || 1);
   state.pageSize = Math.min(100, Math.max(1, Number(params.get('page_size') ?? 25) || 25));
+  const sort = params.get('sort');
+  if (['fit', 'razao_social', 'data_inicio', 'capital_social', 'socios'].includes(sort)) {
+    state.searchSort = sort;
+  }
+  const order = params.get('order');
+  if (order === 'asc' || order === 'desc') state.searchOrder = order;
+  if ($('sort')) $('sort').value = state.searchSort;
 
   const textFields = [
     'q',
@@ -981,6 +1813,98 @@ function readUrlParams() {
   }
 
   return params;
+}
+
+async function loadSavedSearches() {
+  try {
+    const payload = await fetchJson('/api/buscas');
+    state.savedSearches = payload.data ?? [];
+    const container = $('saved-searches');
+    if (!state.savedSearches.length) {
+      container.innerHTML = '<p class="muted small">Nenhuma busca salva.</p>';
+      return;
+    }
+    container.innerHTML = state.savedSearches
+      .map(
+        (item) => `
+          <div class="saved-item">
+            <div class="saved-info">
+              <strong>${escapeHtml(item.name)}</strong>
+              <span>${item.created_at ? fmtDate(String(item.created_at).slice(0, 10)) : ''}</span>
+            </div>
+            <div class="saved-actions">
+              <button type="button" class="btn btn-small" data-open="${escapeHtml(item.id)}">Abrir</button>
+              <button type="button" class="btn btn-small btn-danger" data-delete="${escapeHtml(item.id)}">Excluir</button>
+            </div>
+          </div>`,
+      )
+      .join('');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function openSaveSearchDialog() {
+  $('save-search-name').value = '';
+  $('save-search-dialog').showModal();
+  setTimeout(() => $('save-search-name').focus(), 50);
+}
+
+async function saveCurrentSearch() {
+  const name = $('save-search-name').value.trim();
+  if (!name) {
+    showToast('Informe um nome para a busca.', 'error');
+    return;
+  }
+  const filters = Object.fromEntries(buildFilterParams().entries());
+  try {
+    await fetchJson('/api/buscas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, filters }),
+    });
+    $('save-search-dialog').close();
+    showToast('Busca salva.', 'success');
+    await loadSavedSearches();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message, 'error');
+  }
+}
+
+async function applySavedSearch(filters) {
+  form.reset();
+  $('situacao').value = filters.situacao ?? '';
+  $('idade_min').value = filters.idade_min ?? '3';
+  const fields = [
+    'q',
+    'uf',
+    'situacao',
+    'porte',
+    'idade_min',
+    'capital_min',
+    'capital_max',
+    'socios_min',
+    'socios_max',
+    'cnae',
+  ];
+  for (const field of fields) {
+    if (filters[field] !== undefined) $(field).value = filters[field];
+  }
+  for (const id of ['simples', 'mei', 'com_email', 'com_telefone', 'matriz']) {
+    $(id).checked = filters[id] === 'true';
+  }
+  refreshSelect($('cnae'));
+  refreshSelect($('situacao'));
+  refreshSelect($('porte'));
+  await loadCities($('uf'), $('municipio'));
+  if (filters.municipio) {
+    $('municipio').value = filters.municipio;
+    refreshSelect($('municipio'));
+  }
+  setView('search');
+  await search({ resetPage: true });
+  showToast('Busca carregada.', 'success');
 }
 
 function wireEvents() {
@@ -1038,6 +1962,100 @@ function wireEvents() {
     void loadDashboard();
   });
 
+  $('map-filters').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearMapSelection();
+    await loadMapMetrics(state.mapLevel);
+    resetTerritoryPreview();
+  });
+
+  $('map-clear').addEventListener('click', async () => {
+    $('map-filters').reset();
+    $('map-idade').value = '0';
+    state.mapMetric = 'estabelecimentos';
+    refreshSelect($('map-cnae'));
+    refreshSelect($('map-situacao'));
+    refreshSelect($('map-metric'));
+    clearMapSelection();
+    await loadMapMetrics(state.mapLevel);
+    applyMetricToMap();
+    resetTerritoryPreview();
+  });
+
+  $('map-metric').addEventListener('change', () => {
+    state.mapMetric = $('map-metric').value;
+    applyMetricToMap();
+  });
+
+  document.querySelectorAll('#map-level button').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (button.dataset.level === state.mapLevel) return;
+      void setMapLevel(button.dataset.level);
+    });
+  });
+
+  $('map-see-all').addEventListener('click', () => {
+    state.mapListLimit = state.mapListLimit > 6 ? 6 : 30;
+    const token = ++state.mapPreviewToken;
+    void loadMapCompanies(state.mapSelection, state.mapListLimit, token);
+  });
+
+  $('map-company-list').addEventListener('click', (event) => {
+    const row = event.target.closest('.map-company[data-cnpj]');
+    if (row) openDetail(row.dataset.cnpj);
+  });
+
+  $('map-market').addEventListener('click', (event) => {
+    const row = event.target.closest('.map-company[data-cnpj]');
+    if (row) openDetail(row.dataset.cnpj);
+  });
+
+  $('sort').addEventListener('change', () => {
+    const value = $('sort').value;
+    const mapping = {
+      fit: ['fit', 'desc'],
+      razao_social: ['razao_social', 'asc'],
+      data_inicio: ['data_inicio', 'desc'],
+      capital_social: ['capital_social', 'desc'],
+      socios: ['socios', 'desc'],
+    };
+    const [sort, order] = mapping[value] ?? ['fit', 'desc'];
+    state.searchSort = sort;
+    state.searchOrder = order;
+    search({ resetPage: true });
+  });
+
+  $('save-search').addEventListener('click', openSaveSearchDialog);
+  $('close-save-search').addEventListener('click', () => $('save-search-dialog').close());
+  $('cancel-save-search').addEventListener('click', () => $('save-search-dialog').close());
+  $('save-search-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    void saveCurrentSearch();
+  });
+
+  $('saved-searches').addEventListener('click', (event) => {
+    const openButton = event.target.closest('[data-open]');
+    const deleteButton = event.target.closest('[data-delete]');
+    if (openButton) {
+      const item = state.savedSearches.find((saved) => saved.id === openButton.dataset.open);
+      if (item) void applySavedSearch(item.filters);
+    }
+    if (deleteButton) {
+      void (async () => {
+        try {
+          await fetchJson(`/api/buscas/${encodeURIComponent(deleteButton.dataset.delete)}`, {
+            method: 'DELETE',
+          });
+          showToast('Busca excluída.', 'success');
+          await loadSavedSearches();
+        } catch (error) {
+          console.error(error);
+          showToast(error.message, 'error');
+        }
+      })();
+    }
+  });
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeAllSelects();
@@ -1051,6 +2069,7 @@ async function init() {
   try {
     await loadOptions();
     await loadMeta();
+    await loadSavedSearches();
     const params = readUrlParams();
     enhanceAllSelects();
     await loadCities($('uf'), $('municipio'));
@@ -1061,16 +2080,19 @@ async function init() {
     await loadCities($('dash-uf'), $('dash-municipio'));
 
     if (window.location.hash === '#dashboard') setView('dashboard', false);
-    else {
+    else if (window.location.hash === '#busca') {
       setView('search', false);
       await search({ resetPage: false });
+    } else {
+      setView('mapa', false);
     }
   } catch (error) {
     console.error(error);
     showToast(error.message, 'error');
     $('result-info').textContent = 'Falha ao inicializar a aplicação.';
-    resultsBody.innerHTML = '<tr><td colspan="10" class="empty">Verifique se a API e o banco estão disponíveis.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="11" class="empty">Verifique se a API e o banco estão disponíveis.</td></tr>';
   }
 }
 
 void init();
+
