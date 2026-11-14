@@ -321,6 +321,8 @@ O endpoint `/api/cnpj/:cnpj` devolve um `passaporte` com fatos, eventos datados,
 
 Contatos repetidos são modelados como **hubs** (um nó de contato ligado a várias empresas), não como pares empresa–empresa. Um contato que aparece em muitas empresas é marcado como hub e pode representar uma contabilidade, escritório, coworking ou grupo econômico.
 
+O grafo exibe o nome em todos os nós. A **primeira camada** é o hub e as empresas diretamente ligadas; a **segunda camada** (roxo) mostra sócios dessas empresas e as outras empresas em que esses sócios participam. Cada empresa continua clicável para abrir a rede completa dela.
+
 ### Buscas salvas
 
 Cada busca salva funciona como um **perfil de ICP**: nome + filtros. Fica em `data/app.duckdb` (banco local, sem serviço externo) e pode ser aberta/excluída pela interface. Endpoints: `GET/POST /api/buscas` e `DELETE /api/buscas/:id`.

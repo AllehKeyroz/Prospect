@@ -32,6 +32,15 @@ export interface HubRow {
   exemplo_cnae: string | null;
 }
 
+export interface HubExpansionRow extends NetworkCompanyRow {
+  origem_cnpj_base: string;
+  partner_key: string;
+  partner_nome: string;
+  partner_cpf: string | null;
+  partner_qualificacao: string | null;
+  partner_qualificacao_descricao: string | null;
+}
+
 export interface HubSummary {
   tipo: ContactType;
   valor: string;
@@ -169,6 +178,92 @@ export async function getHubCompanies(
      ORDER BY b.uf, b.razao_social, b.cnpj
      LIMIT $limit`,
     { tipo, valor, limit },
+  );
+}
+
+export async function getHubExpansion(
+  tipo: ContactType,
+  valor: string,
+  options: { companyLimit: number; companyPerPartner: number },
+): Promise<HubExpansionRow[]> {
+  return query<HubExpansionRow>(
+    `WITH hub_empresas AS (
+       SELECT DISTINCT cnpj_base
+       FROM rede_contatos
+       WHERE tipo = $tipo AND valor = $valor
+       ORDER BY cnpj_base
+       LIMIT $companyLimit
+     ),
+     alvo_socios AS (
+       SELECT
+         s.cnpj_base AS origem_cnpj_base,
+         coalesce(nullif(trim(s.cpf_cnpj_socio), ''), 'nome:' || s.nome_socio_busca) AS partner_key,
+         any_value(s.cpf_cnpj_socio) AS partner_cpf,
+         s.nome_socio_busca,
+         any_value(s.nome_socio) AS partner_nome,
+         any_value(s.qualificacao_socio) AS partner_qualificacao
+       FROM socios s
+       JOIN hub_empresas h ON h.cnpj_base = s.cnpj_base
+       GROUP BY 1, 2, 4
+     ),
+     pares AS (
+       SELECT
+         a.origem_cnpj_base,
+         a.partner_key,
+         a.partner_nome,
+         a.partner_cpf,
+         a.partner_qualificacao,
+         s2.cnpj_base
+       FROM alvo_socios a
+       JOIN socios s2
+         ON s2.cnpj_base <> a.origem_cnpj_base
+        AND s2.nome_socio_busca = a.nome_socio_busca
+        AND (
+          (
+            a.partner_cpf IS NOT NULL
+            AND a.partner_cpf <> ''
+            AND s2.cpf_cnpj_socio = a.partner_cpf
+          )
+          OR (a.partner_cpf IS NULL OR a.partner_cpf = '')
+        )
+     ),
+     ranked AS (
+       SELECT
+         p.*,
+         row_number() OVER (PARTITION BY p.partner_key ORDER BY p.cnpj_base) AS rn
+       FROM pares p
+     )
+     SELECT
+       r.origem_cnpj_base,
+       r.partner_key,
+       r.partner_nome,
+       r.partner_cpf,
+       r.partner_qualificacao,
+       q.descricao AS partner_qualificacao_descricao,
+       b.cnpj_base,
+       b.cnpj,
+       b.razao_social,
+       b.nome_fantasia,
+       b.uf,
+       b.municipio_codigo,
+       b.municipio_nome,
+       b.municipio_ibge,
+       b.situacao,
+       b.situacao_descricao,
+       b.data_inicio,
+       b.idade_anos,
+       b.capital_social
+     FROM ranked r
+     LEFT JOIN (${EMPRESA_RANK_SQL}) b ON b.cnpj_base = r.cnpj_base
+     LEFT JOIN dim_qualificacao q ON q.codigo = r.partner_qualificacao
+     WHERE r.rn <= $companyPerPartner
+     ORDER BY r.origem_cnpj_base, r.partner_key, r.cnpj_base`,
+    {
+      tipo,
+      valor,
+      companyLimit: options.companyLimit,
+      companyPerPartner: options.companyPerPartner,
+    },
   );
 }
 

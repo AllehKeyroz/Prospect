@@ -1417,9 +1417,15 @@ function networkNodeRadius(node) {
   return node.hub ? 11 : 7;
 }
 
-function networkNodeLabel(node, degree) {
-  if (node.central || node.hub || degree >= 3) return true;
-  return node.tipo === 'socio';
+function networkNodeLabel() {
+  // O usuário precisa ler o nome em cada conexão, não só no centro.
+  return true;
+}
+
+function networkNodeColor(node) {
+  if (node.central) return '#e8a33d';
+  if (node.ring === 2) return '#7c5cbf';
+  return NETWORK_NODE_COLOR[node.tipo] ?? '#7b8b92';
 }
 
 function shorten(value, size = 30) {
@@ -1731,8 +1737,8 @@ function renderNetworkGraph(data) {
     .map((node) => {
       const point = positions.get(node.id);
       const radius = networkNodeRadius(node);
-      const color = NETWORK_NODE_COLOR[node.tipo] ?? '#7b8b92';
-      const label = networkNodeLabel(node, degree.get(node.id) ?? 0);
+      const color = networkNodeColor(node);
+      const label = networkNodeLabel();
       const labelY = point.y - radius - 8;
       const subY = point.y + radius + 13;
       const safeLabel = shorten(node.rotulo, 34);
@@ -1837,7 +1843,9 @@ function renderNetworkCompanies(data) {
           const local = [item.municipio, item.uf].filter(Boolean).join(' / ');
           return `<div class="network-company" data-cnpj="${escapeHtml(item.cnpj_base)}">
             <div class="network-company-name">${escapeHtml(item.razao_social)}</div>
-            <div class="network-company-tag">${escapeHtml(relacoes || 'centro')}</div>
+            <div class="network-company-tag">${escapeHtml(
+              item.ring === 2 ? `2ª camada · ${relacoes || 'sócio'}` : relacoes || 'centro',
+            )}</div>
             <div class="network-company-meta">${escapeHtml(local || 'Local não informado')} · ${escapeHtml(
               item.situacao ?? 'situação não informada',
             )}</div>
@@ -1869,7 +1877,8 @@ function renderNetwork(data) {
           )}</span>`,
       )
       .join('')}
-    <span class="legend-item"><i class="legend-dot" style="background:#e8a33d"></i>Hub / centro</span>`;
+    <span class="legend-item"><i class="legend-dot" style="background:#e8a33d"></i>Hub / centro</span>
+    <span class="legend-item"><i class="legend-dot" style="background:#7c5cbf"></i>2ª camada</span>`;
   renderNetworkSummary(data);
   renderNetworkCompanies(data);
   renderNetworkGraph(data);
@@ -2018,7 +2027,7 @@ async function loadHub(tipo, valor) {
   $('network-subtitle').textContent = 'Consultando as empresas ligadas a este hub.';
   $('network-graph').innerHTML = '<p class="graph-empty muted">Calculando ligações…</p>';
   try {
-    const params = new URLSearchParams({ tipo, valor, limit: '80' });
+    const params = new URLSearchParams({ tipo, valor, limit: '30' });
     const data = await fetchJson(`/api/rede/hub?${params.toString()}`);
     renderNetwork(data);
     const url = new URL(window.location.href);

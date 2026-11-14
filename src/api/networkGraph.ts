@@ -7,6 +7,7 @@ import type {
   PartnerCompanyRow,
   TargetPartnerRow,
 } from './networkQueries.js';
+import type { HubExpansionRow } from './hubQueries.js';
 
 export type GraphNodeType = 'empresa' | 'socio' | 'email' | 'telefone' | 'endereco' | 'marca';
 export type GraphEdgeType =
@@ -34,6 +35,7 @@ export interface GraphNode {
   central?: boolean;
   hub?: boolean;
   ocorrencias?: number;
+  ring?: number;
   relacoes?: string[];
 }
 
@@ -60,6 +62,7 @@ export interface GraphCompany {
   idade_anos: number | null;
   capital_social: number | null;
   relacoes: string[];
+  ring?: number;
 }
 
 export interface CompanyGraph {
@@ -108,7 +111,7 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function toCompanyNode(row: NetworkCompanyRow, relacao: string): GraphNode {
+function toCompanyNode(row: NetworkCompanyRow, relacao: string, ring = 1): GraphNode {
   const name = row.razao_social || row.nome_fantasia || row.cnpj_base;
   const location = [row.municipio_nome, row.uf].filter(Boolean).join(' / ');
   return {
@@ -125,6 +128,7 @@ function toCompanyNode(row: NetworkCompanyRow, relacao: string): GraphNode {
     data_inicio: row.data_inicio,
     idade_anos: toNumber(row.idade_anos),
     capital_social: toNumber(row.capital_social),
+    ring,
     relacoes: [relacao],
   };
 }
@@ -140,7 +144,7 @@ export function buildCompanyGraph(input: {
   const { target, partners, partnerCompanies, contacts, contactCompanies, limits } = input;
   const nodes = new Map<string, GraphNode>();
   const edges = new Map<string, GraphEdge>();
-  const targetNode = toCompanyNode(target, 'centro');
+  const targetNode = toCompanyNode(target, 'centro', 0);
   targetNode.central = true;
   nodes.set(targetNode.id, targetNode);
 
@@ -191,6 +195,7 @@ export function buildCompanyGraph(input: {
       tipo: 'socio',
       rotulo: partner.nome_socio || 'Sócio sem nome',
       subtitulo: `${qualificacao} · ${cpf}`,
+      ring: 1,
       relacoes: ['sócio'],
     });
     addEdge({
@@ -204,7 +209,7 @@ export function buildCompanyGraph(input: {
     });
 
     for (const company of otherCompaniesByPartner.get(partner.partner_key) ?? []) {
-      const node = toCompanyNode(company, 'socio');
+      const node = toCompanyNode(company, 'socio', 2);
       addNode(node);
       addEdge({
         origem: partnerId,
@@ -238,6 +243,7 @@ export function buildCompanyGraph(input: {
       subtitulo: `${ocorrencias} empresa${ocorrencias === 1 ? '' : 's'}`,
       hub: ocorrencias >= limits.hubMin,
       ocorrencias,
+      ring: 1,
       relacoes: [meta.relacao],
     });
     addEdge({
@@ -251,7 +257,7 @@ export function buildCompanyGraph(input: {
     });
 
     for (const company of companiesByContact.get(`${contact.tipo}|${contact.valor}`) ?? []) {
-      const node = toCompanyNode(company, meta.relacao);
+      const node = toCompanyNode(company, meta.relacao, 2);
       addNode(node);
       addEdge({
         origem: contactId,
@@ -281,6 +287,7 @@ export function buildCompanyGraph(input: {
       idade_anos: node.idade_anos ?? null,
       capital_social: node.capital_social ?? null,
       relacoes: node.relacoes ?? [],
+      ring: node.ring,
     }));
 
   return {
@@ -292,8 +299,9 @@ export function buildCompanyGraph(input: {
 
 /**
  * Grafo de um hub identificado (e-mail, telefone, endereço ou marca).
- * O hub é o nó central; as empresas são as pontas. Não expandimos os sócios
- * dessas empresas aqui para manter a descoberta rápida e legível.
+ * O hub é o centro; as empresas ligadas diretamente ficam na primeira camada.
+ * A segunda camada mostra sócios dessas empresas e as outras empresas em que
+ * esses sócios participam, com cor diferente.
  */
 export function buildHubGraph(input: {
   tipo: ContactType;
@@ -301,8 +309,9 @@ export function buildHubGraph(input: {
   rotulo: string;
   total: number;
   companies: NetworkCompanyRow[];
+  expansion?: HubExpansionRow[];
 }): CompanyGraph {
-  const { tipo, valor, rotulo, total, companies } = input;
+  const { tipo, valor, rotulo, total, companies, expansion = [] } = input;
   const meta = CONTACT_META[tipo];
   const hubId = `${tipo}:${valor}`;
   const nodes = new Map<string, GraphNode>();
@@ -316,11 +325,12 @@ export function buildHubGraph(input: {
     hub: true,
     central: true,
     ocorrencias: total,
+    ring: 0,
     relacoes: ['hub'],
   });
 
   for (const company of companies) {
-    const node = toCompanyNode(company, 'hub');
+    const node = toCompanyNode(company, 'hub', 1);
     nodes.set(node.id, node);
     const edgeId = `${hubId}|${node.id}|${meta.edge}`;
     edges.set(edgeId, {
@@ -333,6 +343,50 @@ export function buildHubGraph(input: {
       evidencias: [`${meta.evidencia} (${total} empresa${total === 1 ? '' : 's'})`],
       peso: 2,
     });
+  }
+
+  for (const row of expansion) {
+    const originId = companyNodeId(row.origem_cnpj_base);
+    const origin = nodes.get(originId);
+    if (!origin) continue;
+
+    const partnerId = `socio:${row.partner_key}`;
+    if (!nodes.has(partnerId)) {
+      const qualificacao = row.partner_qualificacao_descricao || row.partner_qualificacao || 'Sócio';
+      const cpf = row.partner_cpf ? `CPF/CNPJ ${row.partner_cpf}` : 'CPF/CNPJ não informado';
+      nodes.set(partnerId, {
+        id: partnerId,
+        tipo: 'socio',
+        rotulo: row.partner_nome || 'Sócio sem nome',
+        subtitulo: `${qualificacao} · ${cpf} · 2ª camada`,
+        ring: 2,
+        relacoes: ['sócio', '2ª camada'],
+      });
+    }
+
+    const addSocioEdge = (destino: string) => {
+      const id = `${partnerId}|${destino}|socio_de`;
+      if (edges.has(id)) return;
+      edges.set(id, {
+        id,
+        origem: partnerId,
+        destino,
+        tipo: 'socio_de',
+        rotulo: 'Sócio da empresa',
+        confianca: 'alta',
+        evidencias: ['CPF/CNPJ mascarado + nome normalizado', '2ª camada'],
+        peso: 2,
+      });
+    };
+
+    addSocioEdge(originId);
+
+    const destinationId = companyNodeId(row.cnpj_base);
+    if (destinationId === originId) continue;
+    if (!nodes.has(destinationId)) {
+      nodes.set(destinationId, toCompanyNode(row, 'socio', 2));
+    }
+    addSocioEdge(destinationId);
   }
 
   const graphNodes = [...nodes.values()];
@@ -350,6 +404,7 @@ export function buildHubGraph(input: {
       idade_anos: node.idade_anos ?? null,
       capital_social: node.capital_social ?? null,
       relacoes: node.relacoes ?? [],
+      ring: node.ring,
     }));
 
   return {

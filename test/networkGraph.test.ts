@@ -114,6 +114,32 @@ describe('buildCompanyGraph', () => {
     expect(graph.empresas).toHaveLength(2);
   });
 
+  it('expande o hub para sócios e empresas da segunda camada', () => {
+    const graph = buildHubGraph({
+      tipo: 'email',
+      valor: email.valor,
+      rotulo: email.rotulo ?? email.valor,
+      total: 1,
+      companies: [target],
+      expansion: [
+        {
+          ...partnerCompany('44444444', 'EMPRESA DA SEGUNDA CAMADA LTDA'),
+          origem_cnpj_base: target.cnpj_base,
+          partner_key: partner.partner_key,
+          partner_nome: partner.nome_socio,
+          partner_cpf: partner.cpf_cnpj_socio,
+          partner_qualificacao: partner.qualificacao_socio,
+          partner_qualificacao_descricao: partner.qualificacao_socio_descricao,
+        },
+      ],
+    });
+
+    expect(graph.nodes.find((node) => node.id === 'empresa:44444444')?.ring).toBe(2);
+    expect(graph.nodes.some((node) => node.tipo === 'socio' && node.ring === 2)).toBe(true);
+    expect(graph.edges.some((edge) => edge.tipo === 'socio_de')).toBe(true);
+    expect(graph.empresas.some((item) => item.cnpj_base === '44444444')).toBe(true);
+  });
+
   it('deduplica empresas que aparecem por mais de uma relação', () => {
     const graph = buildCompanyGraph({
       target,

@@ -36,6 +36,7 @@ import {
 } from './networkQueries.js';
 import {
   getHubCompanies,
+  getHubExpansion,
   getHubSummary,
   listHubs,
 } from './hubQueries.js';
@@ -719,17 +720,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!hub) {
       return reply.status(404).send({ error: 'Hub não encontrado na base' });
     }
-    const companies = await getHubCompanies(
-      parsed.data.tipo,
-      parsed.data.valor,
-      parsed.data.limit,
-    );
+    const companyLimit = Math.min(parsed.data.limit, 40);
+    const [companies, expansion] = await Promise.all([
+      getHubCompanies(parsed.data.tipo, parsed.data.valor, companyLimit),
+      getHubExpansion(parsed.data.tipo, parsed.data.valor, {
+        companyLimit: 12,
+        companyPerPartner: 2,
+      }),
+    ]);
     const graph = buildHubGraph({
       tipo: hub.tipo,
       valor: hub.valor,
       rotulo: hub.rotulo,
       total: hub.empresas,
       companies,
+      expansion,
     });
     return {
       tipo_rede: 'hub',
@@ -753,7 +758,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       nodes: graph.nodes,
       edges: graph.edges,
       empresas: graph.empresas,
-      limites: { empresas_por_hub: parsed.data.limit },
+      limites: {
+        empresas_por_hub: companyLimit,
+        expansao_empresas: 12,
+        expansao_por_socio: 2,
+      },
       cobertura: {
         snapshot: config.snapshot,
         observacao:

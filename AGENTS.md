@@ -40,6 +40,7 @@ npm run dev                 # http://localhost:3000
 - `buildTimelineQuery` intentionally drops `situacao` and `idade` filters so closed companies still appear in births/deaths. Don't "fix" this without a product decision.
 - `buildCompanyGraph` is a pure builder: network SQL returns flat rows, then nodes/edges are deduplicated there. Repeated contacts become hub nodes; never expand a hub into pairwise company edges.
 - `hubQueries.ts` powers automatic network discovery (`/api/rede/hubs`, `/api/rede/hub`): it finds repeated emails/phones/addresses/brands and opens a hub graph without requiring the user to know a CNPJ.
+- Graph rings are semantic: ring 0 = center/hub, ring 1 = direct connection, ring 2 = partners of hub companies and their other companies (purple). All nodes must render labels, not only the center.
 - The passport is assembled in `src/api/passport.ts` from the detail rows; dates and events are facts from the current snapshot, not a historical time machine.
 - Filters in Busca, Mapa, Dashboard and Rede are auto-applied on change (debounced where needed). Do not reintroduce a state where the visible data depends on pressing "Aplicar".
 - The network map must load `public/geo/estados.geojson` as a visible Brazil layer; a blank ocean with a dot is a regression.
