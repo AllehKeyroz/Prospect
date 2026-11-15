@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, statSync } from 'node:fs';
+import { createWriteStream, existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -267,14 +267,40 @@ function aria2Available(): boolean {
  * tamanho bate com o informado pelo WebDAV. Sem isso, um download interrompido
  * deixaria um arquivo parcial no caminho final e a extração falharia.
  */
+/**
+ * Um ZIP só está completo se o tamanho bate com o WebDAV E o arquivo termina
+ * com a assinatura do "end of central directory" (PK\x05\x06, ou PK\x06\x06
+ * no ZIP64). Tamanho correto com conteúdo truncado acontece quando o servidor
+ * cai no meio da escrita.
+ */
 function isCompleteDownload(dest: string, expectedSize: number): boolean {
   try {
+    if (existsSync(`${dest}.aria2`)) return false;
     const size = statSync(dest).size;
     if (size <= 0) return false;
-    // Tamanho bate com o WebDAV: está completo mesmo que exista um .aria2 órfão.
-    if (expectedSize > 0 && size === expectedSize) return true;
-    if (existsSync(`${dest}.aria2`)) return false;
-    return expectedSize > 0 ? size === expectedSize : true;
+    if (expectedSize > 0 && size !== expectedSize) return false;
+    return hasZipEnd(dest);
+  } catch {
+    return false;
+  }
+}
+
+function hasZipEnd(file: string): boolean {
+  try {
+    const size = statSync(file).size;
+    if (size < 22) return false;
+    const length = Math.min(65_536, size);
+    const buffer = Buffer.alloc(length);
+    const fd = openSync(file, 'r');
+    try {
+      readSync(fd, buffer, 0, length, size - length);
+    } finally {
+      closeSync(fd);
+    }
+    return (
+      buffer.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06])) ||
+      buffer.includes(Buffer.from([0x50, 0x4b, 0x06, 0x06]))
+    );
   } catch {
     return false;
   }
@@ -402,7 +428,11 @@ async function main(): Promise<void> {
     const dest = path.join(rawDir, file.name);
     try {
       await downloadFile(snapshot, file, dest, args.force);
+      if (!hasZipEnd(dest)) {
+        throw new Error('ZIP inválido: assinatura de fim ausente (arquivo truncado)');
+      }
     } catch (error) {
+      await rm(dest, { force: true }).catch(() => undefined);
       failures.push(file.name);
       console.error(`[falhou] ${file.name}: ${(error as Error).message}`);
     }
