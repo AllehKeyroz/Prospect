@@ -111,7 +111,16 @@ async function downloadFile(
     }
   }
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  if (!force && start > 0 && file.size > 0 && start >= file.size) {
+    // O parcial já cobre o arquivo inteiro (download anterior interrompido no fim).
+    await rm(dest, { force: true });
+    await rename(tmp, dest);
+    console.log(`[skip] ${file.name} (${(start / 1048576).toFixed(1)} MB)`);
+    return;
+  }
+
+  const maxAttempts = Number(process.env.DOWNLOAD_ATTEMPTS ?? 12) || 12;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       console.log(
         `[download] ${file.name}${start > 0 ? ` (retomando em ${(start / 1048576).toFixed(1)} MB)` : ''} (tentativa ${attempt})`,
@@ -121,6 +130,14 @@ async function downloadFile(
       const response = await fetch(`${config.sourceBase}/${snapshot}/${file.name}`, {
         headers,
       });
+      if (response.status === 416) {
+        // Range recusado porque o arquivo já está completo.
+        await rm(dest, { force: true });
+        await rename(tmp, dest).catch(() => undefined);
+        await rm(`${dest}.aria2`, { force: true });
+        console.log(`[skip] ${file.name} (já completo)`);
+        return;
+      }
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
       const append = start > 0 && response.status === 206;
@@ -138,8 +155,8 @@ async function downloadFile(
     } catch (error) {
       const partial = await stat(tmp).catch(() => null);
       start = partial?.size ?? 0;
-      if (attempt === 5) throw error;
-      const wait = attempt * 3_000;
+      if (attempt === maxAttempts) throw error;
+      const wait = Math.min(attempt * 3_000, 30_000);
       const cause = (error as { cause?: { code?: string; message?: string } }).cause;
       const detail = cause?.code ?? cause?.message ?? '';
       console.warn(
@@ -252,9 +269,11 @@ function aria2Available(): boolean {
  */
 function isCompleteDownload(dest: string, expectedSize: number): boolean {
   try {
-    if (existsSync(`${dest}.aria2`)) return false;
     const size = statSync(dest).size;
     if (size <= 0) return false;
+    // Tamanho bate com o WebDAV: está completo mesmo que exista um .aria2 órfão.
+    if (expectedSize > 0 && size === expectedSize) return true;
+    if (existsSync(`${dest}.aria2`)) return false;
     return expectedSize > 0 ? size === expectedSize : true;
   } catch {
     return false;
@@ -378,10 +397,24 @@ async function main(): Promise<void> {
 
   console.log(`\n[1/2] Baixando ${selected.length} arquivo(s) para ${rawDir}`);
   const parallel = Number(process.env.DOWNLOAD_PARALLEL ?? 4) || 4;
+  const failures: string[] = [];
   await mapLimit(selected, parallel, async (file) => {
     const dest = path.join(rawDir, file.name);
-    await downloadFile(snapshot, file, dest, args.force);
+    try {
+      await downloadFile(snapshot, file, dest, args.force);
+    } catch (error) {
+      failures.push(file.name);
+      console.error(`[falhou] ${file.name}: ${(error as Error).message}`);
+    }
   });
+
+  if (failures.length > 0) {
+    console.error(
+      `\n[download] ${failures.length} arquivo(s) falharam: ${failures.join(', ')}`,
+    );
+    console.error('Rode o comando de novo: o que já baixou é retomado.');
+    process.exit(1);
+  }
 
   console.log(`\n[2/2] Extraindo para ${outDir}`);
   for (const file of selected) {
