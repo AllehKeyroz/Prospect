@@ -20,7 +20,8 @@ npm run dev                 # http://localhost:3000
 - Verification order: `npm run typecheck && npm test && npm run build`. There is no lint script.
 - Single test: `npx vitest run test/queryBuilder.test.ts`.
 - Frontend syntax check: `node --check public/app.js` (there is no frontend build).
-- PostgreSQL foundation: `npm run db:up` (local compose), then `npm run db:migrate` (uses `DATABASE_URL`); see `db/README.md` for EasyPanel.
+- PostgreSQL foundation: `npm run db:up` (local compose), `npm run db:migrate` (uses `DATABASE_URL`), then `npm run db:load:sample` or `npm run db:load:snapshot`; see `db/README.md` for EasyPanel. The loader uses COPY into staging tables + INSERT SELECT and rebuilds `read.*`, but **the API still reads DuckDB** — Postgres is load-only until the query layer migrates.
+- `prepare:snapshot` uses `aria2c` when available (`ARIA2_CONNECTIONS`, `ARIA2_JOBS`, `USE_ARIA2=false` to disable); the Docker image ships aria2. Full snapshot = 37 ZIPs (~7.3 GB) → ~26 GB CSV.
 - Full snapshot: `npm run prepare:snapshot` then `npm run ingest:snapshot`. Implemented but only exercised on small inputs, not the full 7.27 GB / ~26 GB run. Do not present local results as all-Brazil.
 - Historical 2019: `npm run history:download-2019` (20 fixed-width ZIPs, ~5 GB) and `npm run history:validate-2019` (writes `docs/historico/2019-validacao.{json,md}`).
 

@@ -491,6 +491,34 @@ Nesse caso não adianta Redeploy: ajuste os recursos/mounts e implante de novo.
 No terminal do servidor, `docker service ls` e `docker service ps <serviço>
 --no-trunc` mostram o motivo (`no suitable node`, mount inválido etc.).
 
+### 6.7 Carga no PostgreSQL (Receita completa)
+
+O PostgreSQL é o banco de destino. A carga completa roda em um container
+descartável **dentro do EasyPanel**: o servidor baixa da Receita e grava direto
+no Postgres interno, sem expor o banco e sem enviar 26 GB pela sua internet.
+
+1. A imagem já é publicada pelo workflow `docker-publish`.
+2. No EasyPanel: **New Service → Compose**.
+3. Repositório `AllehKeyroz/Prospect`, branch `master`, arquivo
+   `docker-compose.load.yml`.
+4. Em **Environment**, defina:
+   `DATABASE_URL=postgres://ProspectDB:SENHA@sistemas_prospect-db:5432/prospect-db?sslmode=disable`
+5. Deploy e acompanhe os logs: `aria2` baixa os 37 ZIPs, extrai e faz `COPY`.
+6. Ao terminar, o container sai. Confira as contagens em `core.meta` e
+   `history.snapshots`.
+
+Pré-requisitos: ~40 GB livres para ZIPs + CSVs (o banco ocupa mais) e o
+Postgres acessível pelo hostname interno.
+
+Validação rápida (50 mil linhas, ~45 s) no terminal de um serviço com a imagem:
+
+```bash
+npm run db:load:sample
+```
+
+Nessa amostra o loader já cria as tabelas principais, o read model, os 24
+índices e as estatísticas — é o mesmo código da carga cheia.
+
 ---
 
 ## 7. Snapshot completo

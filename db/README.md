@@ -104,17 +104,52 @@ O schema já habilita `pg_trgm`. O índice trigram em 70M de nomes é opcional e
 grande; comece com busca por prefixo (`razao_social_busca LIKE 'termo%'`) e
 avalie o índice GIN depois de medir o volume real.
 
-## Carga completa
+## Carga completa (implementada)
 
-Para 215M de linhas, não use `INSERT` linha a linha:
+A carga é idempotente e roda em duas etapas:
 
-1. baixe e extraia os CSVs;
-2. `COPY ... FROM STDIN` para tabelas `UNLOGGED` de staging;
-3. faça a normalização;
-4. carregue `core` e `read` em lotes;
-5. crie índices e materialized views **depois** da carga;
-6. rode `ANALYZE`;
-7. registre snapshot, hash e contagens em `history.snapshots` e `core.meta`.
+```bash
+npm run db:migrate          # 001_init + 002_load_helpers
+npm run db:load:snapshot    # COPY dos CSVs em data/extracted/<snapshot>/
+npm run db:load:sample      # validação rápida com data/sample
+```
+
+Fluxo do `db:load:snapshot`:
+
+1. aplica migrações pendentes;
+2. `TRUNCATE` das tabelas de destino e remoção dos 24 índices;
+3. `COPY ... FROM STDIN` de cada CSV para tabelas temporárias (tudo texto);
+4. `INSERT ... SELECT` com parsing em SQL (`core.parse_date`,
+   `core.parse_numeric`, `core.normalize_text`) para `core.empresas`,
+   `core.estabelecimentos` (particionada por UF), `core.socios`,
+   `core.simples` e dimensões;
+5. de-para município RFB → IBGE (`core.municipio_rfb_ibge`);
+6. contagem de sócios (`core.socios_count`);
+7. reconstrução de `read.estabelecimentos_busca` e `read.rede_contatos`;
+8. criação dos índices e `ANALYZE`;
+9. registro em `core.meta` e `history.snapshots`.
+
+A amostra de 50 mil leva ~45 s no total (migração, carga, read model e índices).
+
+### Rodar dentro do EasyPanel
+
+Use `docker-compose.load.yml`: container descartável que baixa o snapshot,
+extrai e carrega no Postgres interno. Precisa de ~40 GB livres no servidor e da
+`DATABASE_URL` configurada. Ao terminar, o container sai.
+
+### Download acelerado
+
+`prepare:snapshot` usa `aria2c` quando disponível (`--split` e várias conexões
+por arquivo); a imagem Docker já inclui o aria2. Para desligar: `USE_ARIA2=false`.
+Ajustes: `ARIA2_CONNECTIONS` (padrão 16) e `ARIA2_JOBS` (padrão 4).
+
+### Notas de dados
+
+- DDD vem com zero à esquerda (`011`) e às vezes com lixo (`0532`, `9011`).
+  A carga mantém apenas 2 dígitos válidos; o resto vira `NULL`.
+- `uf` vazia vira `XX` e cai na partição default.
+- `capital_social` e datas passam por funções tolerantes a erro, então valor
+  inválido vira `NULL` em vez de derrubar a carga.
 
 O app atual ainda usa DuckDB. A troca das queries para PostgreSQL é a próxima
 etapa, feita por camadas:

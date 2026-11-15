@@ -16,6 +16,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
+# aria2c acelera o download dos 37 ZIPs da Receita (segmentos + conexões
+# paralelas). Sem ele, prepare:snapshot cai no downloader em Node.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends aria2 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src ./src

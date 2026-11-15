@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { createWriteStream } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createWriteStream, statSync } from 'node:fs';
 import { mkdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -225,6 +226,75 @@ async function extractZip(
   });
 }
 
+function aria2Available(): boolean {
+  if (process.env.USE_ARIA2 === 'false') return false;
+  try {
+    return spawnSync('aria2c', ['--version'], { stdio: 'ignore' }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasFile(file: string): boolean {
+  try {
+    return statSync(file).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download acelerado com aria2c: cada ZIP é dividido em vários segmentos e
+ * baixado com conexões paralelas. O WebDAV da Receita aceita Range, então o
+ * ganho é grande em arquivos de centenas de MB.
+ */
+async function ariaDownload(snapshot: string, files: SourceFile[], rawDir: string): Promise<void> {
+  const connections = Number(process.env.ARIA2_CONNECTIONS ?? 16) || 16;
+  const jobs = Number(process.env.ARIA2_JOBS ?? 4) || 4;
+  const inputFile = path.join(rawDir, 'aria2-input.txt');
+  const lines: string[] = [];
+
+  for (const file of files) {
+    lines.push(`${config.sourceBase}/${snapshot}/${file.name}`);
+    lines.push(`  out=${file.name}`);
+    lines.push(`  dir=${rawDir}`);
+    lines.push(`  header=Authorization: ${AUTH}`);
+  }
+
+  await writeFile(inputFile, `${lines.join('\n')}\n`, 'utf8');
+
+  const args = [
+    `--input-file=${inputFile}`,
+    '--continue=true',
+    `--max-concurrent-downloads=${jobs}`,
+    `--max-connection-per-server=${connections}`,
+    `--split=${connections}`,
+    '--min-split-size=1M',
+    '--max-tries=10',
+    '--retry-wait=5',
+    '--auto-file-renaming=false',
+    '--allow-overwrite=false',
+    '--console-log-level=warn',
+    '--summary-interval=30',
+  ];
+
+  console.log(
+    `[aria2] ${files.length} arquivo(s) · ${connections} conexões por arquivo · ${jobs} em paralelo`,
+  );
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('aria2c', args, { stdio: 'inherit' });
+      child.on('error', reject);
+      child.on('close', (code) =>
+        code === 0 ? resolve() : reject(new Error(`aria2c terminou com código ${code}`)),
+      );
+    });
+  } finally {
+    await rm(inputFile, { force: true });
+  }
+}
+
 async function mapLimit<T>(
   items: T[],
   limit: number,
@@ -276,6 +346,17 @@ async function main(): Promise<void> {
 
   await mkdir(rawDir, { recursive: true });
   await mkdir(outDir, { recursive: true });
+
+  const pending = selected.filter(
+    (file) => args.force || !hasFile(path.join(rawDir, file.name)),
+  );
+  if (pending.length > 0 && aria2Available()) {
+    try {
+      await ariaDownload(snapshot, pending, rawDir);
+    } catch (error) {
+      console.warn(`[aria2] falhou (${(error as Error).message}); usando o downloader padrão`);
+    }
+  }
 
   console.log(`\n[1/2] Baixando ${selected.length} arquivo(s) para ${rawDir}`);
   await mapLimit(selected, 4, async (file) => {
