@@ -1,0 +1,59 @@
+name: rfb-probe
+
+# Mede o comportamento do WebDAV da Receita (velocidade e limite de conexões)
+# a partir de um IP descartável do GitHub Actions. Não usar em produção.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe WebDAV
+        run: |
+          set -u
+          URL="https://arquivos.receitafederal.gov.br/public.php/webdav/2026-10/Simples.zip"
+          AUTH="Basic $(printf '%s:' 'YggdBLfdninEJX9' | base64)"
+          CHUNK=$((4 * 1024 * 1024))
+
+          echo "arquivo: $URL"
+          echo "chunk por conexao: 4 MiB"
+          echo
+
+          for n in 1 2 4 8 16; do
+            tmp=$(mktemp -d)
+            start=$(date +%s%N)
+            for i in $(seq 0 $((n - 1))); do
+              from=$((i * CHUNK))
+              to=$((from + CHUNK - 1))
+              (
+                curl -sS -o /dev/null \
+                  -w "%{http_code} %{speed_download}\n" \
+                  -H "Authorization: $AUTH" \
+                  -r "$from-$to" \
+                  --max-time 120 \
+                  "$URL" > "$tmp/$i.txt" 2> "$tmp/$i.err" || echo "000 0" > "$tmp/$i.txt"
+              ) &
+            done
+            wait
+            end=$(date +%s%N)
+            ms=$(( (end - start) / 1000000 ))
+            ok=$(grep -c '^200' "$tmp"/*.txt 2>/dev/null || true)
+            codes=$(cat "$tmp"/*.txt 2>/dev/null | awk '{print $1}' | sort | uniq -c | tr '\n' ' ')
+            bytes=$((n * CHUNK))
+            speed=$(awk -v b="$bytes" -v m="$ms" 'BEGIN{ if (m>0) printf "%.2f", (b/1048576)/(m/1000); else print 0 }')
+            echo "parallel=${n} bytes=$((bytes/1048576))MiB wall=${ms}ms media=${speed}MiB/s http=[${codes}]"
+            rm -rf "$tmp"
+            sleep 3
+          done
+
+          echo
+          echo "--- 5 requisicoes sequenciais de 4 MiB (latencia/estabilidade) ---"
+          for i in 1 2 3 4 5; do
+            curl -sS -o /dev/null -w "code=%{http_code} ttfb=%{time_starttransfer}s total=%{time_total}s speed=%{speed_download}B/s\n" \
+              -H "Authorization: $AUTH" \
+              -r "$(( (i - 1) * CHUNK ))-$(( i * CHUNK - 1 ))" \
+              --max-time 120 \
+              "$URL" || echo "code=000 falhou"
+          done
