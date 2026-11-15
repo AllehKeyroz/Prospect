@@ -141,7 +141,8 @@ extrai e carrega no Postgres interno. Precisa de ~40 GB livres no servidor e da
 
 `prepare:snapshot` usa `aria2c` quando disponível (`--split` e várias conexões
 por arquivo); a imagem Docker já inclui o aria2. Para desligar: `USE_ARIA2=false`.
-Ajustes: `ARIA2_CONNECTIONS` (padrão 16) e `ARIA2_JOBS` (padrão 4).
+Ajustes: `ARIA2_CONNECTIONS` (padrão 4) e `ARIA2_JOBS` (padrão 2). O WebDAV da
+Receita limita conexões por IP; acima de ~8 o download costuma estagnar em 0 B/s.
 
 ### Notas de dados
 

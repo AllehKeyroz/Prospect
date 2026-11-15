@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, statSync } from 'node:fs';
+import { createWriteStream, existsSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -85,16 +85,10 @@ async function downloadFile(
   dest: string,
   force: boolean,
 ): Promise<void> {
-  if (!force) {
-    try {
-      const existing = await stat(dest);
-      if (existing.size > 0) {
-        console.log(`[skip] ${file.name} (${(existing.size / 1048576).toFixed(1)} MB)`);
-        return;
-      }
-    } catch {
-      // não existe
-    }
+  if (!force && isCompleteDownload(dest, file.size)) {
+    const existing = await stat(dest).catch(() => null);
+    console.log(`[skip] ${file.name} (${((existing?.size ?? 0) / 1048576).toFixed(1)} MB)`);
+    return;
   }
 
   await mkdir(path.dirname(dest), { recursive: true });
@@ -235,9 +229,17 @@ function aria2Available(): boolean {
   }
 }
 
-function hasFile(file: string): boolean {
+/**
+ * Um ZIP só está completo se não existe o arquivo de controle `.aria2` e o
+ * tamanho bate com o informado pelo WebDAV. Sem isso, um download interrompido
+ * deixaria um arquivo parcial no caminho final e a extração falharia.
+ */
+function isCompleteDownload(dest: string, expectedSize: number): boolean {
   try {
-    return statSync(file).size > 0;
+    if (existsSync(`${dest}.aria2`)) return false;
+    const size = statSync(dest).size;
+    if (size <= 0) return false;
+    return expectedSize > 0 ? size === expectedSize : true;
   } catch {
     return false;
   }
@@ -249,8 +251,8 @@ function hasFile(file: string): boolean {
  * ganho é grande em arquivos de centenas de MB.
  */
 async function ariaDownload(snapshot: string, files: SourceFile[], rawDir: string): Promise<void> {
-  const connections = Number(process.env.ARIA2_CONNECTIONS ?? 16) || 16;
-  const jobs = Number(process.env.ARIA2_JOBS ?? 4) || 4;
+  const connections = Number(process.env.ARIA2_CONNECTIONS ?? 4) || 4;
+  const jobs = Number(process.env.ARIA2_JOBS ?? 2) || 2;
   const inputFile = path.join(rawDir, 'aria2-input.txt');
   const lines: string[] = [];
 
@@ -348,7 +350,7 @@ async function main(): Promise<void> {
   await mkdir(outDir, { recursive: true });
 
   const pending = selected.filter(
-    (file) => args.force || !hasFile(path.join(rawDir, file.name)),
+    (file) => args.force || !isCompleteDownload(path.join(rawDir, file.name), file.size),
   );
   if (pending.length > 0 && aria2Available()) {
     try {
