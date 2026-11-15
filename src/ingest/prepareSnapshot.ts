@@ -93,6 +93,15 @@ async function downloadFile(
 
   await mkdir(path.dirname(dest), { recursive: true });
   const tmp = `${dest}.part`;
+  if (!force && existsSync(`${dest}.aria2`)) {
+    // Aproveita o parcial deixado pelo aria2 em vez de recomeçar do zero.
+    const partial = await stat(dest).catch(() => null);
+    if (partial && partial.size > 0) {
+      await rm(tmp, { force: true });
+      await rename(dest, tmp);
+    }
+    await rm(`${dest}.aria2`, { force: true });
+  }
   let start = 0;
   if (!force) {
     try {
@@ -120,6 +129,9 @@ async function downloadFile(
         createWriteStream(tmp, { flags: append ? 'a' : 'w' }),
       );
       await rename(tmp, dest);
+      // Um parcial do aria2 deixaria um .aria2 órfão; sem limpar, o arquivo
+      // seria considerado incompleto em toda execução seguinte.
+      await rm(`${dest}.aria2`, { force: true });
       const size = (await stat(dest)).size;
       console.log(`[ok] ${file.name} (${(size / 1048576).toFixed(1)} MB)`);
       return;
