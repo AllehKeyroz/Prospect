@@ -26,7 +26,8 @@ services:
     command:
       - sh
       - -c
-      - npm run prepare:snapshot && npm run db:load:snapshot
+      # db:migrate primeiro: valida a conexão em segundos, antes de baixar 7 GB.
+      - npm run db:migrate && npm run prepare:snapshot && npm run db:load:snapshot
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
@@ -48,7 +49,9 @@ services:
 networks:
   easypanel:
     external: true
-    name: ${EASYPANEL_NETWORK:-sistemas}
+    # O EasyPanel cria uma rede por serviço, no formato <projeto>_<serviço>.
+    # É o mesmo valor do "Internal host" do Postgres.
+    name: ${EASYPANEL_NETWORK:-sistemas_prospect-db}
 
 volumes:
   load_data:
