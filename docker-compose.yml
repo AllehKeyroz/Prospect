@@ -1,20 +1,44 @@
+# Carga da Receita completa direto no PostgreSQL do EasyPanel.
+#
+# Este é o arquivo padrão (`docker-compose.yml`) exigido pelo serviço Compose do
+# EasyPanel. Ele roda um container descartável: baixa os 37 ZIPs, extrai os CSVs
+# e carrega em core.* + read.*. Ao terminar, o container sai.
+#
+# No EasyPanel:
+#   1. New Service -> Compose
+#   2. Repositório AllehKeyroz/Prospect, branch master, arquivo docker-compose.yml
+#   3. Environment: DATABASE_URL=postgres://...
+#   4. Deploy e acompanhe os logs.
+#
+# Requisitos: ~40 GB livres e o Postgres acessível pelo hostname interno
+# (ex.: sistemas_prospect-db).
+#
+# Para rodar o app localmente com Docker, use docker-compose.local.yml.
+
 services:
-  app:
-    build: .
-    ports:
-      - "3000:3000"
+  load:
+    # Build no próprio servidor: não depende de o pacote ghcr.io ser público.
+    # Se preferir a imagem pronta, troque as duas linhas abaixo por:
+    #   image: ghcr.io/allehkeyroz/prospect:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - sh
+      - -c
+      - npm run prepare:snapshot && npm run db:load:snapshot
     environment:
       NODE_ENV: production
-      PORT: 3000
-      HOST: 0.0.0.0
-      DUCKDB_PATH: /data/cnpj.duckdb
-      APP_DB_PATH: /data/app.duckdb
-      DUCKDB_TEMP_DIR: /data/tmp
+      DATABASE_URL: ${DATABASE_URL}
       DATA_DIR: /data
-      MEMORY_LIMIT: 8GB
-      THREADS: 8
-      SNAPSHOT: 2026-10
+      SNAPSHOT: ${SNAPSHOT:-2026-10}
+      ARIA2_CONNECTIONS: ${ARIA2_CONNECTIONS:-16}
+      ARIA2_JOBS: ${ARIA2_JOBS:-4}
+      PG_LOAD_MAINTENANCE_MEM: ${PG_LOAD_MAINTENANCE_MEM:-512MB}
+      PG_LOAD_WORK_MEM: ${PG_LOAD_WORK_MEM:-128MB}
     volumes:
-      - ./data:/data
-    mem_limit: 12g
-    restart: unless-stopped
+      - load_data:/data
+    restart: "no"
+
+volumes:
+  load_data:

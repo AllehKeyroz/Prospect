@@ -133,7 +133,7 @@ A amostra de 50 mil leva ~45 s no total (migração, carga, read model e índice
 
 ### Rodar dentro do EasyPanel
 
-Use `docker-compose.load.yml`: container descartável que baixa o snapshot,
+Use o `docker-compose.yml` da raiz: container descartável que baixa o snapshot,
 extrai e carrega no Postgres interno. Precisa de ~40 GB livres no servidor e da
 `DATABASE_URL` configurada. Ao terminar, o container sai.
 

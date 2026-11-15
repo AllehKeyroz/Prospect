@@ -460,8 +460,10 @@ imagem publicada pelo GitHub Actions em vez de compilar no servidor.
   visibility* → **Public** (o repositório já é público).
 - No EasyPanel, crie um **App** com `Source = Docker Image`,
   imagem `ghcr.io/allehkeyroz/prospect:latest`, porta `3000`, volume em `/data`.
-- Alternativa: crie um serviço **Compose** com `docker-compose.easypanel.yml`;
-  o domínio aponta para o serviço `app`, porta `3000`.
+- Para rodar o app com Docker na sua máquina, use `docker-compose.local.yml`:
+  `docker compose -f docker-compose.local.yml up -d`.
+  O `docker-compose.yml` da raiz é reservado para o serviço Compose do
+  EasyPanel (carga no PostgreSQL).
 
 ### 6.6 Diagnóstico de 502 e 404
 
@@ -497,10 +499,11 @@ O PostgreSQL é o banco de destino. A carga completa roda em um container
 descartável **dentro do EasyPanel**: o servidor baixa da Receita e grava direto
 no Postgres interno, sem expor o banco e sem enviar 26 GB pela sua internet.
 
-1. A imagem já é publicada pelo workflow `docker-publish`.
+1. O compose builda a imagem a partir do `Dockerfile` do próprio repositório —
+   não depende de o pacote do GHCR estar público.
 2. No EasyPanel: **New Service → Compose**.
 3. Repositório `AllehKeyroz/Prospect`, branch `master`, arquivo
-   `docker-compose.load.yml`.
+   `docker-compose.yml` (o padrão da raiz).
 4. Em **Environment**, defina:
    `DATABASE_URL=postgres://ProspectDB:SENHA@sistemas_prospect-db:5432/prospect-db?sslmode=disable`
 5. Deploy e acompanhe os logs: `aria2` baixa os 37 ZIPs, extrai e faz `COPY`.
