@@ -128,7 +128,11 @@ async function downloadFile(
       start = partial?.size ?? 0;
       if (attempt === 5) throw error;
       const wait = attempt * 3_000;
-      console.warn(`[retry] ${file.name}: ${(error as Error).message}; aguardando ${wait}ms`);
+      const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code ?? cause?.message ?? '';
+      console.warn(
+        `[retry] ${file.name}: ${(error as Error).message}${detail ? ` (${detail})` : ''}; aguardando ${wait}ms`,
+      );
       await sleep(wait);
     }
   }
