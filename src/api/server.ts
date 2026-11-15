@@ -31,10 +31,28 @@ app.setErrorHandler((error: unknown, request, reply) => {
   });
 });
 
+function logBoot(dbReady: boolean): void {
+  // Primeira linha do log em produção. Se o EasyPanel não mostrar isto, o
+  // processo nem chegou a executar (problema de imagem/porta/plataforma).
+  app.log.info({
+    msg: 'boot',
+    node: process.version,
+    pid: process.pid,
+    port: config.port,
+    host: config.host,
+    db_ready: dbReady,
+    db_path: config.dbPath,
+    cwd: process.cwd(),
+  });
+}
+
 async function startDegraded(): Promise<void> {
   app.get('/health', async () => ({
-    ok: false,
+    // Liveness: o processo está vivo. O banco é readiness e aparece em
+    // db_ready/database; as rotas /api/* continuam 503 até a carga.
+    ok: true,
     status: 'degraded',
+    db_ready: false,
     database: 'missing',
     db_path: config.dbPath,
     message: 'Banco ainda não carregado. Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
@@ -62,6 +80,7 @@ async function startDegraded(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
+  logBoot(false);
   await app.listen({ port: config.port, host: config.host });
   app.log.error(`DuckDB ausente em ${config.dbPath}; API em modo degradado.`);
   app.log.error('Abra o terminal do serviço e rode: npm run sample && npm run ingest:sample');
@@ -107,6 +126,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   await app.listen({ port: config.port, host: config.host });
+  logBoot(true);
   app.log.info(`CNPJ Prospect em http://localhost:${config.port}`);
   app.log.info(`DuckDB: ${config.dbPath} (${config.memoryLimit}, ${config.threads} threads)`);
 }

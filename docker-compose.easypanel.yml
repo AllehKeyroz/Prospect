@@ -1,0 +1,29 @@
+# Alternativa ao build no EasyPanel: roda a imagem já publicada pelo
+# GitHub Actions (.github/workflows/docker-publish.yml).
+#
+# No EasyPanel: New Service -> Compose -> repositório AllehKeyroz/Prospect,
+# branch master (ou main), arquivo docker-compose.easypanel.yml.
+# Depois adicione o domínio apontando para o serviço `app`, porta 3000.
+
+services:
+  app:
+    image: ghcr.io/allehkeyroz/prospect:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DUCKDB_PATH: /data/cnpj.duckdb
+      APP_DB_PATH: /data/app.duckdb
+      DUCKDB_TEMP_DIR: /data/tmp
+      DATA_DIR: /data
+      MEMORY_LIMIT: 8GB
+      THREADS: 8
+      SNAPSHOT: 2026-10
+    volumes:
+      - prospect_data:/data
+    restart: unless-stopped
+
+volumes:
+  prospect_data:

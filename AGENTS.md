@@ -16,7 +16,7 @@ npm run dev                 # http://localhost:3000
 
 - `npm start` serves compiled code from `dist/src/api/server.js`; run `npm run build` first. The `src/` segment is expected (`rootDir: "."`).
 - **Stop the API before any `ingest:*` command.** Ingest deletes/recreates `data/cnpj.duckdb`; on Windows the running server holds the file lock.
-- If the DB file is missing, the API now starts in degraded mode (process stays alive, `/health` returns 200 with `ok:false`, `/api/*` returns 503). This exists so EasyPanel gives you a terminal instead of a restart loop; run the sample/ingest commands and restart.
+- If the DB file is missing, the API starts in degraded mode (process stays alive, `/health` returns 200 with `ok:true` and `db_ready:false`, `/api/*` returns 503). This is deliberate liveness/readiness separation so EasyPanel gives you a terminal instead of a restart loop; run the sample/ingest commands and restart.
 - Verification order: `npm run typecheck && npm test && npm run build`. There is no lint script.
 - Single test: `npx vitest run test/queryBuilder.test.ts`.
 - Frontend syntax check: `node --check public/app.js` (there is no frontend build).

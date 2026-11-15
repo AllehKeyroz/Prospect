@@ -400,7 +400,7 @@ SAMPLE_INCLUDE_SIMPLES=true
 
 ### 6.2 Primeira carga
 
-Se o banco ainda não existe, o app sobe em **modo degradado**: o processo fica vivo, a UI abre, `/health` responde `ok:false` e as rotas `/api/*` retornam 503. Isso evita o restart loop e permite abrir o terminal. Depois rode:
+Se o banco ainda não existe, o app sobe em **modo degradado**: o processo fica vivo, a UI abre, `/health` responde 200 com `ok:true` e `db_ready:false` (liveness), e as rotas `/api/*` retornam 503 (readiness). Isso evita o restart loop e permite abrir o terminal. Depois rode:
 
 ```bash
 npm run sample
@@ -427,6 +427,37 @@ Reinicie o serviço. O `sample` reaproveita os ZIPs já baixados; só baixa o qu
 - O arquivo `data/cnpj.duckdb` é o banco inteiro. Faça backup periódico do volume `/data`.
 - Os ZIPs em `/data/raw` podem ser apagados depois da carga; eles são reproduzíveis a partir da fonte.
 - Se o volume for perdido, basta rodar `npm run sample && npm run ingest:sample` novamente.
+
+### 6.5 Deploy por imagem pronta (contorna o build no EasyPanel)
+
+Se o build do EasyPanel termina em segundos e nenhum contêiner aparece, rode a
+imagem publicada pelo GitHub Actions em vez de compilar no servidor.
+
+- Workflow: `.github/workflows/docker-publish.yml` publica
+  `ghcr.io/allehkeyroz/prospect:latest` e `:sha` a cada push em `master`/`main`.
+- No GitHub, abra **Packages** → `prospect` → *Package settings* → *Change
+  visibility* → **Public** (o repositório já é público).
+- No EasyPanel, crie um **App** com `Source = Docker Image`,
+  imagem `ghcr.io/allehkeyroz/prospect:latest`, porta `3000`, volume em `/data`.
+- Alternativa: crie um serviço **Compose** com `docker-compose.easypanel.yml`;
+  o domínio aponta para o serviço `app`, porta `3000`.
+
+### 6.6 Diagnóstico de 502 e 404
+
+Antes de mexer no `.env`, olhe o status HTTP do domínio:
+
+| Resposta | Significado | Onde resolver |
+| --- | --- | --- |
+| `502` + HTML do EasyPanel | Domínio roteado, mas nenhum contêiner atende a porta | Deploy/porta/replicas do serviço |
+| `404` + HTML do EasyPanel | Nenhuma rota para esse host: domínio não está no serviço | Aba **Domains**: adicionar/recriar o domínio |
+| `200` + JSON `{"ok":...}` | Aplicação respondendo | Falta só carregar o DuckDB |
+
+O 404 do EasyPanel e o 404 da aplicação são diferentes: a aplicação sempre
+responde JSON em `/api/*` e `index.html` nas rotas de UI.
+
+Com o contêiner de pé, o primeiro log é `"msg":"boot"` com `port`, `host`,
+`db_ready` e `db_path`. Se essa linha não aparece, o processo não executou:
+o problema é imagem/porta/plataforma, não a aplicação.
 
 ---
 

@@ -136,6 +136,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const memory = process.memoryUsage();
       return {
         ok: true,
+        status: 'ok',
+        db_ready: true,
         snapshot: meta.snapshot ?? config.snapshot,
         generated_at: meta.generated_at ?? null,
         rows: {
