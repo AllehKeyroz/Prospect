@@ -35,6 +35,10 @@ services:
       SNAPSHOT: ${SNAPSHOT:-2026-10}
       ARIA2_CONNECTIONS: ${ARIA2_CONNECTIONS:-4}
       ARIA2_JOBS: ${ARIA2_JOBS:-2}
+      # USE_ARIA2 precisa estar aqui: variável do .env só interpola, não entra
+      # no container se não for declarada.
+      USE_ARIA2: ${USE_ARIA2:-false}
+      DOWNLOAD_PARALLEL: ${DOWNLOAD_PARALLEL:-2}
       PG_LOAD_MAINTENANCE_MEM: ${PG_LOAD_MAINTENANCE_MEM:-512MB}
       PG_LOAD_WORK_MEM: ${PG_LOAD_WORK_MEM:-128MB}
     volumes:

@@ -361,7 +361,8 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n[1/2] Baixando ${selected.length} arquivo(s) para ${rawDir}`);
-  await mapLimit(selected, 4, async (file) => {
+  const parallel = Number(process.env.DOWNLOAD_PARALLEL ?? 4) || 4;
+  await mapLimit(selected, parallel, async (file) => {
     const dest = path.join(rawDir, file.name);
     await downloadFile(snapshot, file, dest, args.force);
   });
