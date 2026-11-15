@@ -446,13 +446,80 @@ async function copyCsv(client: Client, table: string, file: string, delimiter = 
   await pipeline(fs.createReadStream(file), writable);
 }
 
-async function query(client: Client, sql: string, params: unknown[] = []): Promise<void> {
-  await client.query(sql, params);
+async function query(
+  client: Client,
+  sql: string,
+  params: unknown[] = [],
+): Promise<pg.QueryResult> {
+  return client.query(sql, params);
 }
 
 async function count(client: Client, table: string): Promise<string> {
   const result = await client.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`);
   return result.rows[0]?.n ?? '0';
+}
+
+async function alreadyLoaded(
+  client: Client,
+  snapshot: string,
+  section: string,
+  file: string,
+): Promise<boolean> {
+  const result = await client.query(
+    'SELECT 1 FROM core.load_progress WHERE snapshot = $1 AND section = $2 AND file = $3',
+    [snapshot, section, file],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+async function markLoaded(
+  client: Client,
+  snapshot: string,
+  section: string,
+  file: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO core.load_progress (snapshot, section, file) VALUES ($1, $2, $3)
+     ON CONFLICT DO NOTHING`,
+    [snapshot, section, file],
+  );
+}
+
+/**
+ * Carrega um CSV: COPY para a staging e INSERT dentro de uma transação.
+ * A transação garante que um arquivo nunca fique pela metade se o processo
+ * cair, e o progresso gravado permite retomar sem truncar o que já entrou.
+ */
+async function loadTableFile(options: {
+  client: Client;
+  snapshot: string;
+  section: string;
+  file: string;
+  staging: string;
+  sql: string;
+  reset: boolean;
+}): Promise<void> {
+  const { client, snapshot, section, file, staging, sql, reset } = options;
+  const name = path.basename(file);
+
+  if (!reset && (await alreadyLoaded(client, snapshot, section, name))) {
+    log(`[skip] ${section}/${name} (já carregado)`);
+    return;
+  }
+
+  const started = Date.now();
+  await copyCsv(client, staging, file);
+
+  await query(client, 'BEGIN');
+  try {
+    const result = await query(client, sql, [snapshot]);
+    await markLoaded(client, snapshot, section, name);
+    await query(client, 'COMMIT');
+    log(`${section} ${name} -> +${result.rowCount ?? 0} (${ms(started)})`);
+  } catch (error) {
+    await query(client, 'ROLLBACK');
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +530,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const useSample = args.includes('--sample');
   const skipMigrate = args.includes('--skip-migrate');
+  const reset = args.includes('--reset');
   const snapshot = config.snapshot;
   const root = useSample
     ? path.join(config.dataDir, 'sample')
@@ -523,16 +591,29 @@ async function main(): Promise<void> {
     log('tabelas temporárias criadas');
 
     // 2. limpeza e índices
-    log('limpando tabelas de destino');
-    await query(
-      client,
-      `TRUNCATE core.estabelecimentos, core.empresas, core.socios, core.simples,
-               core.dim_cnae, core.dim_municipio, core.dim_natureza,
-               core.dim_qualificacao, core.dim_motivo, core.dim_pais,
-               core.municipio_ibge, core.municipio_rfb_ibge, core.socios_count,
-               read.estabelecimentos_busca, read.rede_contatos
-       RESTART IDENTITY`,
+    const progress = await client.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM core.load_progress WHERE snapshot = $1',
+      [snapshot],
     );
+    const loadedCount = Number(progress.rows[0]?.n ?? '0');
+    const resume = loadedCount > 0 && !reset;
+
+    if (resume) {
+      log(`retomando: ${loadedCount} arquivo(s) já carregados; nada será truncado`);
+      await query(client, 'TRUNCATE read.estabelecimentos_busca, read.rede_contatos');
+    } else {
+      log('limpando tabelas de destino');
+      await query(
+        client,
+        `TRUNCATE core.estabelecimentos, core.empresas, core.socios, core.simples,
+                 core.dim_cnae, core.dim_municipio, core.dim_natureza,
+                 core.dim_qualificacao, core.dim_motivo, core.dim_pais,
+                 core.municipio_ibge, core.municipio_rfb_ibge, core.socios_count,
+                 read.estabelecimentos_busca, read.rede_contatos
+         RESTART IDENTITY`,
+      );
+      await query(client, 'DELETE FROM core.load_progress WHERE snapshot = $1', [snapshot]);
+    }
 
     log('removendo índices para acelerar a carga');
     for (const index of INDEXES) await query(client, `DROP INDEX IF EXISTS ${index.drop}`);
@@ -574,34 +655,54 @@ async function main(): Promise<void> {
 
     // 5. empresas
     for (const file of paths.empresas) {
-      const started = Date.now();
-      await copyCsv(client, 'stg_empresas', file);
-      await query(client, SQL_EMPRESAS, [snapshot]);
-      log(`empresas ${path.basename(file)} -> ${await count(client, 'core.empresas')} (${ms(started)})`);
+      await loadTableFile({
+        client,
+        snapshot,
+        section: 'empresas',
+        file,
+        staging: 'stg_empresas',
+        sql: SQL_EMPRESAS,
+        reset,
+      });
     }
 
     // 6. estabelecimentos
     for (const file of paths.estabelecimentos) {
-      const started = Date.now();
-      await copyCsv(client, 'stg_estabelecimentos', file);
-      await query(client, SQL_ESTABELECIMENTOS, [snapshot]);
-      log(`estabelecimentos ${path.basename(file)} -> ${await count(client, 'core.estabelecimentos')} (${ms(started)})`);
+      await loadTableFile({
+        client,
+        snapshot,
+        section: 'estabelecimentos',
+        file,
+        staging: 'stg_estabelecimentos',
+        sql: SQL_ESTABELECIMENTOS,
+        reset,
+      });
     }
 
     // 7. sócios
     for (const file of paths.socios) {
-      const started = Date.now();
-      await copyCsv(client, 'stg_socios', file);
-      await query(client, SQL_SOCIOS, [snapshot]);
-      log(`socios ${path.basename(file)} -> ${await count(client, 'core.socios')} (${ms(started)})`);
+      await loadTableFile({
+        client,
+        snapshot,
+        section: 'socios',
+        file,
+        staging: 'stg_socios',
+        sql: SQL_SOCIOS,
+        reset,
+      });
     }
 
     // 8. simples
     for (const file of paths.simples) {
-      const started = Date.now();
-      await copyCsv(client, 'stg_simples', file);
-      await query(client, SQL_SIMPLES, [snapshot]);
-      log(`simples ${path.basename(file)} -> ${await count(client, 'core.simples')} (${ms(started)})`);
+      await loadTableFile({
+        client,
+        snapshot,
+        section: 'simples',
+        file,
+        staging: 'stg_simples',
+        sql: SQL_SIMPLES,
+        reset,
+      });
     }
 
     // 9. de-para RFB -> IBGE e contagem de sócios

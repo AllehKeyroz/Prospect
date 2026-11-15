@@ -6,6 +6,8 @@ import fastifyStatic from '@fastify/static';
 import { config } from '../config.js';
 import { closeDatabase, openDatabase } from '../db/duckdb.js';
 import { closeAppDb, openAppDb } from '../db/appDb.js';
+import { runMigrations } from '../db/migrate.js';
+import { registerAdminRoutes } from './admin.js';
 import { registerRoutes } from './routes.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -46,6 +48,22 @@ function logBoot(dbReady: boolean): void {
   });
 }
 
+async function ensureSchema(): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    app.log.warn('DATABASE_URL ausente: administração da base fica indisponível');
+    return;
+  }
+  try {
+    await runMigrations({
+      connectionString,
+      log: (message) => app.log.info(message),
+    });
+  } catch (error) {
+    app.log.warn(`migrações não aplicadas: ${(error as Error).message}`);
+  }
+}
+
 async function startDegraded(): Promise<void> {
   app.get('/health', async () => ({
     // Liveness: o processo está vivo. O banco é readiness e aparece em
@@ -58,11 +76,14 @@ async function startDegraded(): Promise<void> {
     message: 'Banco ainda não carregado. Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
   }));
 
+  // A administração da base funciona sem DuckDB: ela lê o PostgreSQL.
+  await registerAdminRoutes(app);
+
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api/')) {
       return reply.status(503).send({
         error: 'Banco ainda não carregado',
-        hint: 'Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
+        hint: 'Use /admin para carregar a base no PostgreSQL.',
       });
     }
     return reply.sendFile('index.html');
@@ -93,6 +114,10 @@ async function main(): Promise<void> {
     prefix: '/',
   });
 
+  app.get('/admin', async (_request, reply) => reply.sendFile('admin.html'));
+
+  await ensureSchema();
+
   if (!fs.existsSync(config.dbPath)) {
     await startDegraded();
     return;
@@ -101,6 +126,7 @@ async function main(): Promise<void> {
   await openDatabase({ readOnly: true });
   await openAppDb();
   await registerRoutes(app);
+  await registerAdminRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api/')) {
