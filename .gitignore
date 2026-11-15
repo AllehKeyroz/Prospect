@@ -5,3 +5,7 @@ data/
 *.log
 .DS_Store
 coverage/
+
+# logs locais
+api.log
+api.err
