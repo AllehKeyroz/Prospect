@@ -40,18 +40,9 @@ services:
     volumes:
       - load_data:/data
     restart: "no"
-    # O Compose cria uma rede própria (sistemas_<serviço>_default). Sem entrar
-    # na rede do projeto, o container não resolve o hostname interno do
-    # Postgres. Ajuste EASYPANEL_NETWORK se o projeto tiver outro nome.
-    networks:
-      - easypanel
-
-networks:
-  easypanel:
-    external: true
-    # O EasyPanel cria uma rede por serviço, no formato <projeto>_<serviço>.
-    # É o mesmo valor do "Internal host" do Postgres.
-    name: ${EASYPANEL_NETWORK:-sistemas_prospect-db}
+    # Sem rede externa: a conexão com o Postgres usa o IP público + porta
+    # exposta no painel. Redes internas do EasyPanel têm nome próprio e não
+    # seguem o formato do hostname interno.
 
 volumes:
   load_data:
