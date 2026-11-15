@@ -31,7 +31,10 @@ services:
     volumes:
       - load_data:/data
     restart: unless-stopped
+    # Duas redes: a padrão do Compose (por onde o Traefik alcança o app) e a
+    # do Supabase (por onde o app alcança o Postgres em `db`).
     networks:
+      - default
       - supabase
 
 networks:
