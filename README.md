@@ -120,6 +120,22 @@ npm run dev                # http://localhost:3000
 
 No Windows, se `npm run sample` reclamar de permissão, execute o terminal como usuário normal (não é necessário administrador).
 
+### Uso local no dia a dia (Windows)
+
+Depois da primeira carga, use o atalho da raiz:
+
+```bat
+iniciar.cmd
+```
+
+Ele confere `data/cnpj.duckdb`, compila o TypeScript, sobe a API em
+`http://localhost:3000` (bind em `127.0.0.1`) e abre o navegador. Feche a janela
+ou use `Ctrl+C` para parar. No PowerShell, o equivalente:
+
+```powershell
+npm run build; $env:NODE_ENV='production'; npm start
+```
+
 ### Comandos
 
 | Comando | O que faz |
