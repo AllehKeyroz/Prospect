@@ -1,7 +1,9 @@
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+# EasyPanel pode injetar NODE_ENV=production no build. Forçamos devDependencies
+# porque o estágio de build precisa de TypeScript (tsc).
+RUN npm ci --include=dev
 
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
