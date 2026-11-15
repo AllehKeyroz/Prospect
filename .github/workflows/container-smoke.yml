@@ -1,0 +1,44 @@
+name: container-smoke
+
+on:
+  push:
+    branches: [master, main, debug]
+  workflow_dispatch:
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t prospect:smoke .
+
+      - name: Run container without database
+        run: |
+          docker run -d --name prospect-smoke -p 3000:3000 prospect:smoke
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3000/health || true)
+            echo "attempt=${attempt} status=${code}"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+          echo "health body:"
+          cat /tmp/health.json || true
+          echo
+          curl -fsS http://127.0.0.1:3000/ > /dev/null
+          test "$code" = "200"
+
+      - name: Container logs and state
+        if: always()
+        run: |
+          docker ps -a
+          docker logs prospect-smoke || true
+          docker inspect prospect-smoke --format '{{json .State}}' || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f prospect-smoke || true
