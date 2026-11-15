@@ -43,6 +43,10 @@ services:
     # Sem rede externa: a conexão com o Postgres usa o IP público + porta
     # exposta no painel. Redes internas do EasyPanel têm nome próprio e não
     # seguem o formato do hostname interno.
+    # host.docker.internal permite alcançar a porta publicada pelo gateway do
+    # Docker, útil se o hairpin NAT do IP público não funcionar.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   load_data:
