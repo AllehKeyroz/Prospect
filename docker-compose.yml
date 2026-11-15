@@ -1,56 +1,43 @@
-# Carga da Receita completa direto no PostgreSQL do EasyPanel.
+# App Prospect rodando dentro da rede do Supabase self-hosted.
 #
-# Este é o arquivo padrão (`docker-compose.yml`) exigido pelo serviço Compose do
-# EasyPanel. Ele roda um container descartável: baixa os 37 ZIPs, extrai os CSVs
-# e carrega em core.* + read.*. Ao terminar, o container sai.
+# O Compose do EasyPanel cria a própria rede; para falar com o Postgres do
+# Supabase é preciso entrar na rede dele. O nome segue o padrão do Docker
+# Compose: <projeto>_<serviço>_default.
 #
 # No EasyPanel:
-#   1. New Service -> Compose
-#   2. Repositório AllehKeyroz/Prospect, branch master, arquivo docker-compose.yml
-#   3. Environment: DATABASE_URL=postgres://...
-#   4. Deploy e acompanhe os logs.
-#
-# Requisitos: ~40 GB livres e o Postgres acessível pelo hostname interno
-# (ex.: sistemas_prospect-db).
-#
-# Para rodar o app localmente com Docker, use docker-compose.local.yml.
+#   1. Environment: DATABASE_URL=postgres://postgres:SENHA@db:5432/postgres?sslmode=disable
+#   2. Domains: apontar para o serviço `app`, porta 3000
+#   3. Abrir https://SEU-DOMINIO/admin
 
 services:
-  load:
-    # Build no próprio servidor: não depende de o pacote ghcr.io ser público.
-    # Se preferir a imagem pronta, troque as duas linhas abaixo por:
-    #   image: ghcr.io/allehkeyroz/prospect:latest
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    command:
-      - sh
-      - -c
-      # db:migrate primeiro: valida a conexão em segundos, antes de baixar 7 GB.
-      - npm run db:migrate && npm run prepare:snapshot && npm run db:load:snapshot
+    command: ['node', 'dist/src/api/server.js']
     environment:
       NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
       DATABASE_URL: ${DATABASE_URL}
       DATA_DIR: /data
+      DUCKDB_PATH: /data/cnpj.duckdb
+      APP_DB_PATH: /data/app.duckdb
+      DUCKDB_TEMP_DIR: /data/tmp
       SNAPSHOT: ${SNAPSHOT:-2026-10}
-      ARIA2_CONNECTIONS: ${ARIA2_CONNECTIONS:-4}
-      ARIA2_JOBS: ${ARIA2_JOBS:-2}
-      # USE_ARIA2 precisa estar aqui: variável do .env só interpola, não entra
-      # no container se não for declarada.
       USE_ARIA2: ${USE_ARIA2:-false}
       DOWNLOAD_PARALLEL: ${DOWNLOAD_PARALLEL:-2}
-      PG_LOAD_MAINTENANCE_MEM: ${PG_LOAD_MAINTENANCE_MEM:-512MB}
-      PG_LOAD_WORK_MEM: ${PG_LOAD_WORK_MEM:-128MB}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
       - load_data:/data
-    restart: "no"
-    # Sem rede externa: a conexão com o Postgres usa o IP público + porta
-    # exposta no painel. Redes internas do EasyPanel têm nome próprio e não
-    # seguem o formato do hostname interno.
-    # host.docker.internal permite alcançar a porta publicada pelo gateway do
-    # Docker, útil se o hairpin NAT do IP público não funcionar.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - supabase
+
+networks:
+  supabase:
+    external: true
+    name: ${EASYPANEL_NETWORK:-sistemas_prospects-supabase_default}
 
 volumes:
   load_data:
