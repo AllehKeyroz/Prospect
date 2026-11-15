@@ -400,7 +400,7 @@ SAMPLE_INCLUDE_SIMPLES=true
 
 ### 6.2 Primeira carga
 
-O app encerra se o banco ainda não existe. Antes de subir, abra o **terminal do serviço** no EasyPanel e rode:
+Se o banco ainda não existe, o app sobe em **modo degradado**: o processo fica vivo, a UI abre, `/health` responde `ok:false` e as rotas `/api/*` retornam 503. Isso evita o restart loop e permite abrir o terminal. Depois rode:
 
 ```bash
 npm run sample
@@ -409,7 +409,7 @@ npm run ingest:sample
 
 A amostra leva **~3–5 minutos** (download + parsing). Depois reinicie o serviço. O banco estará em `/data/cnpj.duckdb`.
 
-> Se o serviço entrar em restart loop por causa do banco ausente, use o terminal do EasyPanel ou um job one-off com os dois comandos acima. O volume `/data` precisa estar montado antes da carga.
+> Se o banco estiver ausente, o serviço não entra mais em restart loop: ele fica em modo degradado. Abra o terminal, rode os dois comandos acima e reinicie o serviço. O volume `/data` precisa estar montado antes da carga.
 
 ### 6.3 Atualização mensal (amostra)
 

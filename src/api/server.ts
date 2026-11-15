@@ -31,19 +31,53 @@ app.setErrorHandler((error: unknown, request, reply) => {
   });
 });
 
-async function main(): Promise<void> {
-  if (!fs.existsSync(config.dbPath)) {
-    console.error(`Banco não encontrado em ${config.dbPath}`);
-    console.error('Gere a amostra e carregue o banco antes de iniciar a API:');
-    console.error('  npm run sample && npm run ingest:sample');
-    process.exit(1);
-  }
+async function startDegraded(): Promise<void> {
+  app.get('/health', async () => ({
+    ok: false,
+    status: 'degraded',
+    database: 'missing',
+    db_path: config.dbPath,
+    message: 'Banco ainda não carregado. Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
+  }));
 
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith('/api/')) {
+      return reply.status(503).send({
+        error: 'Banco ainda não carregado',
+        hint: 'Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
+      });
+    }
+    return reply.sendFile('index.html');
+  });
+
+  const shutdown = async (signal: string) => {
+    app.log.info(`${signal} recebido; encerrando modo degradado`);
+    try {
+      await app.close();
+      process.exit(0);
+    } catch {
+      process.exit(1);
+    }
+  };
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  await app.listen({ port: config.port, host: config.host });
+  app.log.error(`DuckDB ausente em ${config.dbPath}; API em modo degradado.`);
+  app.log.error('Abra o terminal do serviço e rode: npm run sample && npm run ingest:sample');
+}
+
+async function main(): Promise<void> {
   await app.register(cors, { origin: true });
   await app.register(fastifyStatic, {
     root: path.resolve('public'),
     prefix: '/',
   });
+
+  if (!fs.existsSync(config.dbPath)) {
+    await startDegraded();
+    return;
+  }
 
   await openDatabase({ readOnly: true });
   await openAppDb();
