@@ -51,6 +51,10 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    # Porta publicada direto no host: elimina o Traefik do caminho enquanto o
+    # domínio não roteia. Depois pode ser removida.
+    ports:
+      - '3001:3000'
 
 volumes:
   db_data:
