@@ -396,6 +396,11 @@ SAMPLE_INCLUDE_SIMPLES=true
 ```
 
 8. Limite de memória do container: **12 GB** (deixa 4 GB para o sistema). O DuckDB usará no máximo 8 GB.
+   > **Atenção:** esse valor só faz sentido em uma máquina com 16 GB. Em servidor
+   > de 4–8 GB, um limite de 12 GB faz o Swarm **não conseguir agendar a tarefa**:
+   > o deploy aparece como sucesso em segundos, nenhum contêiner é criado e não
+   > há log de runtime. Use `MEMORY_LIMIT=1GB` e limite de container de 2 GB, ou
+   > remova o limite.
 9. Faça o deploy.
 
 ### 6.2 Primeira carga
@@ -458,6 +463,17 @@ responde JSON em `/api/*` e `index.html` nas rotas de UI.
 Com o contêiner de pé, o primeiro log é `"msg":"boot"` com `port`, `host`,
 `db_ready` e `db_path`. Se essa linha não aparece, o processo não executou:
 o problema é imagem/porta/plataforma, não a aplicação.
+
+**Deploy “Success” em poucos segundos, nenhum contêiner e nenhum log** é
+tarefa do Swarm que não pode ser agendada. Quase sempre é um destes:
+
+- limite de memória/CPU maior que a máquina (ex.: 12 GB em VPS de 4 GB);
+- mount apontando para um volume que não existe mais;
+- réplicas = 0.
+
+Nesse caso não adianta Redeploy: ajuste os recursos/mounts e implante de novo.
+No terminal do servidor, `docker service ls` e `docker service ps <serviço>
+--no-trunc` mostram o motivo (`no suitable node`, mount inválido etc.).
 
 ---
 
