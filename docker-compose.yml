@@ -1,25 +1,42 @@
-# App Prospect rodando dentro da rede do Supabase self-hosted.
+# Prospect — stack único (app + Postgres) para o EasyPanel.
 #
-# O Compose do EasyPanel cria a própria rede; para falar com o Postgres do
-# Supabase é preciso entrar na rede dele. O nome segue o padrão do Docker
-# Compose: <projeto>_<serviço>_default.
+# Um serviço, uma rede, sem dependência de outro stack. É a configuração que já
+# rodou de forma estável neste servidor.
 #
 # No EasyPanel:
-#   1. Environment: DATABASE_URL=postgres://postgres:SENHA@db:5432/postgres?sslmode=disable
+#   1. Environment: POSTGRES_PASSWORD (ou deixe o padrão abaixo)
 #   2. Domains: apontar para o serviço `app`, porta 3000
 #   3. Abrir https://SEU-DOMINIO/admin
+#
+# A migração para o Supabase self-hosted depois é pg_dump/pg_restore: o schema e
+# os dados são Postgres puro.
 
 services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: prospect
+      POSTGRES_USER: prospect
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospect_local_dev}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U prospect -d prospect']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ['node', 'dist/src/api/server.js']
     environment:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgres://prospect:${POSTGRES_PASSWORD:-prospect_local_dev}@db:5432/prospect?sslmode=disable
       DATA_DIR: /data
       DUCKDB_PATH: /data/cnpj.duckdb
       APP_DB_PATH: /data/app.duckdb
@@ -30,17 +47,11 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
       - load_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
-    # Duas redes: a padrão do Compose (por onde o Traefik alcança o app) e a
-    # do Supabase (por onde o app alcança o Postgres em `db`).
-    networks:
-      - default
-      - supabase
-
-networks:
-  supabase:
-    external: true
-    name: ${EASYPANEL_NETWORK:-sistemas_prospects-supabase_default}
 
 volumes:
+  db_data:
   load_data:
