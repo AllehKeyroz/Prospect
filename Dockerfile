@@ -16,6 +16,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
+# Sem estas variáveis a aplicação sobe em modo degradado: a UI abre, /health
+# responde 200 e /admin mostra o estado. Nenhuma variável é obrigatória.
+ENV DATA_DIR=/data
 # aria2c acelera o download dos 37 ZIPs da Receita (segmentos + conexões
 # paralelas). Sem ele, prepare:snapshot cai no downloader em Node.
 RUN apt-get update \
