@@ -14,6 +14,7 @@ RUN npm install --include=dev --no-audit --no-fund
 COPY tsconfig.minimal.json ./tsconfig.minimal.json
 COPY src/config.ts ./src/config.ts
 COPY src/api/server.minimal.ts ./src/api/server.minimal.ts
+COPY src/tools/syncStorage.ts ./src/tools/syncStorage.ts
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime

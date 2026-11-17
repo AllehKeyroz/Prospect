@@ -248,3 +248,31 @@ Se uma atualização piorar algo:
 1. No EasyPanel, faça deploy do commit anterior (ou da tag `:sha` anterior do GHCR).
 2. O volume `/data` é preservado; a base continua lá.
 3. Confirme `/health` com `db_ready:true`.
+
+---
+
+## 10. Sincronizar ZIPs para o Supabase Storage
+
+O Storage self-hosted aceita **50 MB por objeto** por padrão. Por isso os ZIPs são enviados em partes de 40 MB e o manifesto guarda o tamanho de cada parte.
+
+No terminal do serviço da app (EasyPanel), rode:
+
+```bash
+SUPABASE_URL=https://sistemas-supabase-prospect.aoi8gd.easypanel.host \
+SUPABASE_SERVICE_ROLE_KEY='COLE_A_SERVICE_ROLE_KEY' \
+SUPABASE_BUCKET=cnpj-raw \
+SNAPSHOT=2026-10 \
+SYNC_CHUNK_MB=40 \
+node dist/src/tools/syncStorage.js
+```
+
+- `SYNC_ONLY=Cnaes.zip` testa um único arquivo.
+- `SYNC_CHUNK_MB` deve ficar entre 5 e 49.
+- O script baixa da Receita **no servidor** e envia direto ao Storage; não passa pela sua máquina.
+- Manifesto: `cnpj-raw/2026-10/manifest.json`.
+- Partes: `cnpj-raw/2026-10/_parts/<arquivo>/part-00000`.
+- Se cair, rode de novo: ele retoma das partes já enviadas.
+- O loader futuro deve concatenar as partes usando `chunk_size` e `parts` de cada arquivo do manifesto.
+
+Antes de rodar em produção, troque a `SUPABASE_SERVICE_ROLE_KEY` temporária e mantenha o bucket privado.
+

@@ -498,6 +498,22 @@ Para o snapshot completo, baixe/extraia com `/admin` → **Baixar/extrair snapsh
 
 ---
 
+### 6.8 ZIPs no Supabase Storage
+
+O bucket privado `cnpj-raw` guarda os ZIPs em `<SNAPSHOT>/`. O Storage self-hosted limita cada objeto a **50 MB**; por isso o `src/tools/syncStorage.ts` baixa da Receita **no servidor** e envia partes de 40 MB, com manifesto e retomada.
+
+```bash
+SUPABASE_URL=https://SEU-SUPABASE \
+SUPABASE_SERVICE_ROLE_KEY='...' \
+SUPABASE_BUCKET=cnpj-raw \
+SNAPSHOT=2026-10 \
+node dist/src/tools/syncStorage.js
+```
+
+Detalhes e o comando completo estão em `DEPLOY.md` (seção 10). Não faça esse upload pela sua máquina: o gargalo é o uplink.
+
+---
+
 ## 7. Snapshot completo
 
 O MVP atual usa uma amostra. Para carregar o Brasil inteiro, use os dois comandos:

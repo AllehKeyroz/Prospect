@@ -12,6 +12,6 @@
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["src/api/server.minimal.ts", "src/config.ts"],
+  "include": ["src/api/server.minimal.ts", "src/config.ts", "src/tools/syncStorage.ts"],
   "exclude": ["node_modules", "dist", "data"]
 }

@@ -41,6 +41,14 @@ npm run start:minimal       # runs it (no DuckDB/Postgres imports)
 - `prepare:snapshot` uses `aria2c` when available (`ARIA2_CONNECTIONS`, `ARIA2_JOBS`, `USE_ARIA2=false` to disable); the Docker image ships aria2. Full snapshot = 37 ZIPs (~7.3 GB) → ~26 GB CSV. Implemented but only exercised on small inputs, never the full run; do not present local results as all-Brazil.
 - Historical 2019: `npm run history:download-2019` (20 fixed-width ZIPs, ~5 GB) and `npm run history:validate-2019` (writes `docs/historico/2019-validacao.{json,md}`).
 
+## Storage (Supabase)
+
+- Raw RFB ZIPs live in the private Supabase bucket `cnpj-raw`, under `<SNAPSHOT>/`.
+- Self-hosted Storage caps objects at **50 MB** (global `FILE_SIZE_LIMIT`). `src/tools/syncStorage.ts` downloads from RFB **server-side** and uploads 40 MB parts plus `<SNAPSHOT>/manifest.json`; parts are `_parts/<name>/part-00000`.
+- Run it in the app container (server egress), never from a developer uplink: `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node dist/src/tools/syncStorage.js`.
+- The loader must read the manifest and concatenate parts using each file's `chunk_size`/`parts`; do not assume a fixed chunk size.
+- Bucket is private; service role key only server-side. Never put it in the frontend or commit it.
+
 ## Data reality
 
 - The local DB is a **50k-establishment sample** (CNPJ base `00000000–04631960`, snapshot `2026-10`), not Brazil.
