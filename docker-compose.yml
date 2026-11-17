@@ -29,9 +29,6 @@ services:
     volumes:
       - app_data:/data
     restart: unless-stopped
-    # Porta publicada para diagnóstico direto (IP:3001). O domínio usa a 3000.
-    ports:
-      - '3001:3000'
 
 volumes:
   app_data:
