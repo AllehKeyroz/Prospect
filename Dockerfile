@@ -33,8 +33,8 @@ COPY --from=build /app/db ./db
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-# O banco fica em /data (volume persistente). Sem banco, a API sobe em modo
-# degradado para o EasyPanel permitir abrir o terminal.
+# O EasyPanel já faz o próprio health check. O HEALTHCHECK do Docker pode
+# marcar o container como unhealthy e tirá-lo do proxy sem gerar log nenhum.
+# O banco fica em /data (volume). Sem banco, a API sobe em modo degradado para
+# a UI abrir e o terminal ficar disponível.
 CMD ["node", "dist/src/api/server.js"]

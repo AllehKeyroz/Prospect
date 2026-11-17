@@ -36,6 +36,7 @@ app.setErrorHandler((error: unknown, request, reply) => {
 function logBoot(dbReady: boolean): void {
   // Primeira linha do log em produção. Se o EasyPanel não mostrar isto, o
   // processo nem chegou a executar (problema de imagem/porta/plataforma).
+  const publicDir = path.resolve('public');
   app.log.info({
     msg: 'boot',
     node: process.version,
@@ -44,9 +45,27 @@ function logBoot(dbReady: boolean): void {
     host: config.host,
     db_ready: dbReady,
     db_path: config.dbPath,
+    data_dir: config.dataDir,
     cwd: process.cwd(),
+    public_dir: publicDir,
+    public_exists: fs.existsSync(publicDir),
+    duckdb_exists: fs.existsSync(config.dbPath),
+    database_url: Boolean(process.env.DATABASE_URL),
+    admin_token: Boolean(process.env.ADMIN_TOKEN),
   });
 }
+
+process.on('unhandledRejection', (reason) => {
+  app.log.error({ msg: 'unhandledRejection', reason: String(reason) });
+});
+
+process.on('uncaughtException', (error) => {
+  app.log.error({
+    msg: 'uncaughtException',
+    error: String(error),
+    stack: (error as Error).stack,
+  });
+});
 
 async function ensureSchema(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
@@ -73,7 +92,7 @@ async function startDegraded(): Promise<void> {
     db_ready: false,
     database: 'missing',
     db_path: config.dbPath,
-    message: 'Banco ainda não carregado. Rode npm run sample && npm run ingest:sample no terminal do serviço e reinicie.',
+    message: 'Base não carregada. Use /admin para ver o estado e disparar a carga.',
   }));
 
   // A administração da base funciona sem DuckDB: ela lê o PostgreSQL.
@@ -105,11 +124,13 @@ async function startDegraded(): Promise<void> {
 
   logBoot(false);
   await app.listen({ port: config.port, host: config.host });
-  app.log.error(`DuckDB ausente em ${config.dbPath}; API em modo degradado.`);
-  app.log.error('Abra o terminal do serviço e rode: npm run sample && npm run ingest:sample');
+  app.log.info(
+    `[startup] modo degradado ativo em http://${config.host}:${config.port} — UI em /, admin em /admin, health em /health`,
+  );
 }
 
 async function main(): Promise<void> {
+  app.log.info('[startup] registrando CORS e arquivos estáticos');
   await app.register(cors, { origin: true });
   await app.register(fastifyStatic, {
     root: path.resolve('public'),
@@ -118,14 +139,17 @@ async function main(): Promise<void> {
   });
 
   app.get('/admin', async (_request, reply) => reply.sendFile('admin.html'));
+  app.log.info('[startup] tela /admin registrada');
 
   await ensureSchema();
 
   if (!fs.existsSync(config.dbPath)) {
+    app.log.warn('[startup] DuckDB ausente; subindo em modo degradado');
     await startDegraded();
     return;
   }
 
+  app.log.info('[startup] DuckDB encontrado; subindo em modo normal');
   app.get('/', async (_request, reply) => reply.sendFile('index.html'));
 
   await openDatabase({ readOnly: true });
