@@ -11,6 +11,8 @@
     "dev": "tsx watch src/api/server.ts",
     "start": "node dist/src/api/server.js",
     "build": "tsc -p tsconfig.json",
+    "build:minimal": "tsc -p tsconfig.minimal.json",
+    "start:minimal": "node dist/src/api/server.minimal.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:up": "docker compose -f docker-compose.db.yml up -d",
     "db:down": "docker compose -f docker-compose.db.yml down",

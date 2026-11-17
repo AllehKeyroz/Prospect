@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Prospect · diagnóstico sem banco</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #0b1016; color: #e6edf3;
+      font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+    header {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 16px 24px; border-bottom: 1px solid #1c2733;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    .pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #2a3a4a; }
+    .ok { color: #4ade80; border-color: #14532d; background: #052e16; }
+    .warn { color: #fbbf24; border-color: #78350f; background: #2a1a05; }
+    .bad { color: #f87171; border-color: #7f1d1d; background: #2a0d0d; }
+    main { padding: 24px; display: grid; gap: 20px; max-width: 1100px; }
+    section { border: 1px solid #1c2733; border-radius: 10px; padding: 16px 18px; background: #0e141b; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #8b9bb0; margin: 0 0 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+    .stat { background: #0b1016; border: 1px solid #1c2733; border-radius: 8px; padding: 10px 12px; }
+    .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; word-break: break-all; }
+    .stat span { font-size: 12px; color: #8b9bb0; }
+    p { color: #9aa8b8; margin: 0 0 12px; }
+    code { background: #131c26; padding: 2px 6px; border-radius: 4px; color: #c9d6e3; font-size: 13px; }
+    a { color: #60a5fa; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .actions a {
+      display: inline-block; text-decoration: none; padding: 9px 14px; border-radius: 8px;
+      background: #1d4ed8; color: #fff; font-weight: 600;
+    }
+    .actions a.secondary { background: #18212b; border: 1px solid #2a3a4a; color: #dbe4ee; }
+    pre {
+      margin: 0; max-height: 320px; overflow: auto; background: #070b10;
+      border: 1px solid #1c2733; border-radius: 8px; padding: 12px;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Prospect · diagnóstico</h1>
+    <span id="mode" class="pill warn">verificando…</span>
+    <span id="status" class="pill">—</span>
+    <span id="uptime" class="pill">—</span>
+  </header>
+
+  <main>
+    <section>
+      <h2>Modo sem banco</h2>
+      <p>
+        Este deploy sobe apenas a estrutura HTTP e a UI estática.
+        <strong>DuckDB e PostgreSQL não são carregados</strong> — nenhum driver, nenhum arquivo de banco.
+      </p>
+      <p>
+        Se o servidor ficar estável assim, o travamento vinha do banco/build nativo.
+        Se ainda travar, o problema é de plataforma/build/rede.
+      </p>
+      <div class="actions">
+        <a href="/app">Abrir UI (sem dados)</a>
+        <a class="secondary" href="/health">/health</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Processo</h2>
+      <div class="grid" id="stats"></div>
+    </section>
+
+    <section>
+      <h2>Caminhos</h2>
+      <div class="grid" id="paths"></div>
+    </section>
+
+    <section>
+      <h2>/health</h2>
+      <pre id="json">aguardando…</pre>
+    </section>
+  </main>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+
+    function stat(label, value) {
+      return `<div class="stat"><b>${value ?? '—'}</b><span>${label}</span></div>`;
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch('/health', { cache: 'no-store' });
+        const data = await response.json();
+
+        el('mode').textContent = `modo: ${data.mode}`;
+        el('mode').className = 'pill ok';
+        el('status').textContent = data.db_enabled ? 'banco ligado' : 'sem banco';
+        el('status').className = 'pill warn';
+        el('uptime').textContent = `${data.uptime_s}s no ar`;
+
+        el('stats').innerHTML = [
+          stat('Node', data.node),
+          stat('PID', data.pid),
+          stat('RSS', `${data.rss_mb} MB`),
+          stat('Heap usado', `${data.heap_used_mb} MB`),
+          stat('Max RSS', `${data.max_rss_mb} MB`),
+          stat('Load', (data.system?.loadavg ?? []).join(' / ')),
+          stat('RAM livre', `${data.system?.free_mem_mb ?? '—'} MB`),
+          stat('RAM total', `${data.system?.total_mem_mb ?? '—'} MB`),
+          stat('CPUs', data.system?.cpus),
+          stat('Porta', data.port),
+          stat('Host', data.host),
+        ].join('');
+
+        el('paths').innerHTML = [
+          stat('cwd', data.cwd),
+          stat('public', data.public_dir),
+          stat('public existe', data.public_exists ? 'sim' : 'não'),
+          stat('data_dir', data.data_dir),
+        ].join('');
+
+        el('json').textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        el('mode').textContent = 'sem resposta';
+        el('mode').className = 'pill bad';
+        el('json').textContent = `Falha ao consultar /health: ${error.message}`;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

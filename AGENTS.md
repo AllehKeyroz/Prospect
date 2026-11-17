@@ -12,9 +12,12 @@ npm run sample              # ~3–5 min: downloads shard 1 into data/sample/
 npm run ingest:sample       # ~5 s: recreates data/cnpj.duckdb
 npm run setup:sample        # sample + ingest in one command
 npm run dev                 # http://localhost:3000
+npm run build:minimal       # compiles the no-DB diagnostic server
+npm run start:minimal       # runs it (no DuckDB/Postgres imports)
 ```
 
 - `.env.example` exists and has **all values commented out**; `.env` is optional and gitignored. `src/config.ts` has working defaults (`SNAPSHOT=2026-10`, `PORT=3000`), and `DATA_DIR` alone drives the DB paths.
+- **Deploy mode:** the root `Dockerfile` is the **no-DB diagnostic image** (Fastify + static only; `package.minimal.json`, `tsconfig.minimal.json`, `src/api/server.minimal.ts`). The full app is `Dockerfile.full` (DuckDB, admin, ingest). Never import DB modules in `server.minimal.ts` — the point is to not load native drivers.
 - Data paths derive from `DATA_DIR` (default `data/`, Docker `/data`): `DUCKDB_PATH`, `APP_DB_PATH` and `DUCKDB_TEMP_DIR` override individually. Do not hardcode `data/...` in new code.
 - `npm start` serves compiled code from `dist/src/api/server.js`; run `npm run build` first. The `src/` segment is expected (`rootDir: "."`). Build also emits `dist/test/`.
 - **Stop the API before any `ingest:*` command.** Ingest deletes/recreates `data/cnpj.duckdb`; on Windows the running server holds the file lock.
@@ -71,7 +74,7 @@ npm run dev                 # http://localhost:3000
 - No frontend bundler: `public/app.js` is served raw and imports MapLibre from `/vendor/maplibre-gl.mjs`, with the worker set via `setWorkerUrl`. After upgrading `maplibre-gl`, re-copy `maplibre-gl.mjs`, `maplibre-gl-worker.mjs` and `maplibre-gl.css` from `node_modules/maplibre-gl/dist/` into `public/vendor/`. Never add a CDN.
 - ESM/NodeNext: local TS imports need the `.js` suffix, e.g. `../lib/cnpj.js`.
 - `explore/` is scratch/probe material, not application code.
-- `DEPLOY.md` is the operational guide for EasyPanel. README still has older prose in places; trust `package.json`, `Dockerfile`, `.github/workflows/` and `DEPLOY.md`. There is no `docker-compose.yml` in the root (`docker-compose.local.yml` runs the app, `docker-compose.db.yml` runs local Postgres).
+- `DEPLOY.md` is the operational guide for EasyPanel. The root `Dockerfile` deploys the no-DB diagnostic mode; the full app uses `Dockerfile.full` (or the `:full` GHCR image). There is no `docker-compose.yml` in the root (`docker-compose.local.yml` builds `Dockerfile.full`, `docker-compose.db.yml` runs local Postgres).
 
 ## Product constraints
 

@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t prospect:e2e .
+      - name: Build full image
+        run: docker build -f Dockerfile.full -t prospect:e2e .
 
       - name: Start container with persistent volume
         run: |

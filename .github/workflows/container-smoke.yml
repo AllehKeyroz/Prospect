@@ -6,30 +6,69 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-run:
+  # Imagem usada pelo EasyPanel por padrão: sem DuckDB e sem Postgres.
+  minimal-no-db:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t prospect:smoke .
+      - name: Build minimal image
+        run: docker build -t prospect:minimal .
 
       - name: Run container without database
         run: |
-          docker run -d --name prospect-smoke -p 3000:3000 prospect:smoke
+          docker run -d --name prospect-minimal -p 3000:3000 prospect:minimal
           for attempt in $(seq 1 30); do
             code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:3000/health || true)
             echo "attempt=${attempt} status=${code}"
-            if [ "$code" = "200" ]; then
-              break
-            fi
+            if [ "$code" = "200" ]; then break; fi
             sleep 2
           done
-          echo "health body:"
-          cat /tmp/health.json || true
+          cat /tmp/health.json
           echo
-          grep -q '"db_ready":false' /tmp/health.json
+          grep -q '"mode":"no-db"' /tmp/health.json
+          grep -q '"db_enabled":false' /tmp/health.json
+          curl -fsS http://127.0.0.1:3000/ > /dev/null
+          curl -fsS http://127.0.0.1:3000/admin > /dev/null
+          curl -fsS http://127.0.0.1:3000/app > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ready)" = "503"
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:3000/api/empresas?page_size=1')" = "503"
+          test "$code" = "200"
+
+      - name: Container logs and state
+        if: always()
+        run: |
+          docker ps -a
+          docker logs prospect-minimal || true
+          docker inspect prospect-minimal --format '{{json .State}}' || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f prospect-minimal || true
+
+  # Aplicação completa (DuckDB), para garantir que ela continua compilando.
+  full-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build full image
+        run: docker build -f Dockerfile.full -t prospect:full .
+
+      - name: Run container without database
+        run: |
+          docker run -d --name prospect-full -p 3000:3000 prospect:full
+          for attempt in $(seq 1 45); do
+            code=$(curl -s -o /tmp/health-full.json -w '%{http_code}' http://127.0.0.1:3000/health || true)
+            echo "attempt=${attempt} status=${code}"
+            if [ "$code" = "200" ]; then break; fi
+            sleep 2
+          done
+          cat /tmp/health-full.json
+          echo
+          grep -q '"db_ready":false' /tmp/health-full.json
           curl -fsS http://127.0.0.1:3000/ > /dev/null
           curl -fsS http://127.0.0.1:3000/admin > /dev/null
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ready)" = "503"
@@ -39,9 +78,9 @@ jobs:
         if: always()
         run: |
           docker ps -a
-          docker logs prospect-smoke || true
-          docker inspect prospect-smoke --format '{{json .State}}' || true
+          docker logs prospect-full || true
+          docker inspect prospect-full --format '{{json .State}}' || true
 
       - name: Stop container
         if: always()
-        run: docker rm -f prospect-smoke || true
+        run: docker rm -f prospect-full || true

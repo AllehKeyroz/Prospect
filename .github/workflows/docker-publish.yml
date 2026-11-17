@@ -1,9 +1,12 @@
 name: docker-publish
 
-# Publica a imagem pronta no GitHub Container Registry (ghcr.io).
-# Serve para o EasyPanel rodar a imagem sem depender do build no servidor:
+# Publica as duas imagens no GitHub Container Registry (ghcr.io):
+#   latest -> Dockerfile (modo diagnóstico, sem banco)
+#   full   -> Dockerfile.full (aplicação completa com DuckDB)
+#
+# No EasyPanel:
 #   Source = Docker Image
-#   Image  = ghcr.io/allehkeyroz/prospect:latest
+#   Image  = ghcr.io/allehkeyroz/prospect:latest   (sem banco)
 #   Port   = 3000
 
 on:
@@ -18,7 +21,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -31,11 +34,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build e push
+      - name: Build e push (minimal, sem banco)
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile
           push: true
           tags: |
             ghcr.io/allehkeyroz/prospect:latest
             ghcr.io/allehkeyroz/prospect:${{ github.sha }}
+
+      - name: Build e push (full, com DuckDB)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.full
+          push: true
+          tags: |
+            ghcr.io/allehkeyroz/prospect:full

@@ -4,6 +4,8 @@ Sistema interno de consulta e análise de mercado/concorrentes com os Dados Aber
 
 **Status:** MVP funcional com amostra local, passaporte histórico (H2), mapa de ligações (N1) e Data Trust Lab (N5). A carga do snapshot completo é a próxima etapa de escala.
 
+> **Deploy atual (diagnóstico):** o `Dockerfile` da raiz sobe a estrutura HTTP + UI **sem banco** — não instala nem importa DuckDB/PostgreSQL. É para isolar travamentos do servidor. O app completo está em `Dockerfile.full`; veja `DEPLOY.md`.
+
 ---
 
 ## 1. O que já funciona
@@ -385,15 +387,23 @@ A tabela `estabelecimentos_busca` já traz:
 
 ## 6. Deploy no EasyPanel
 
-O app usa **DuckDB em arquivo** como base de leitura: não é necessário criar PostgreSQL para ele subir. O único requisito é um serviço Node com **volume persistente em `/data`**.
+### 6.0 Modo diagnóstico sem banco (Dockerfile padrão)
 
-> Guia operacional completo, com checklist e diagnóstico: **[`DEPLOY.md`](DEPLOY.md)**.
+O `Dockerfile` da raiz é o **minimal**: instala só Fastify + arquivos estáticos, sem DuckDB, sem PostgreSQL e sem módulos nativos. Ele existe para descobrir se o travamento do servidor vem do banco/build nativo ou da plataforma.
 
-### 6.1 Criar o serviço
+- Rotas: `/` e `/admin` → página de diagnóstico; `/app` → shell da UI; `/health` → estado/memória; `/api/*` → 503.
+- Build leve e determinístico: usa `package.minimal.json`, `tsconfig.minimal.json` e `src/api/server.minimal.ts`.
+- Se o servidor ficar estável nesse modo, o problema está no app completo/banco. Se ainda travar, é plataforma/build/rede.
+
+Para voltar ao app completo, aponte o build do EasyPanel para **`Dockerfile.full`** (ou renomeie-o para `Dockerfile`). As seções 6.1–6.7 descrevem o app completo.
+
+### 6.1 Criar o serviço (app completo)
+
+O app completo usa **DuckDB em arquivo** como base de leitura: não é necessário criar PostgreSQL para ele subir. O único requisito é um serviço Node com **volume persistente em `/data`**.
 
 1. No EasyPanel, crie um novo **App**.
 2. Conecte o repositório (GitHub) ou faça upload do projeto.
-3. Build: **Dockerfile** (não use Compose; não existe `docker-compose.yml` na raiz).
+3. Build: **`Dockerfile.full`** (não use o `Dockerfile` da raiz, que é o modo diagnóstico sem banco; e não existe `docker-compose.yml` na raiz).
 4. Porta: `3000` (é a porta em que o processo escuta; não altere `PORT` sem alterar aqui).
 5. Healthcheck: `GET /health` na porta `3000`. **Não use `/ready` como healthcheck** — ele retorna 503 durante a carga e o EasyPanel reiniciaria o container.
 6. Crie um **volume persistente** montado em `/data` com pelo menos **20 GB** para a amostra. Para o snapshot completo, 100–200 GB.
@@ -443,9 +453,9 @@ Abra `/admin` e clique em **Carregar amostra (app)** novamente, ou rode `npm run
 
 Se o build do EasyPanel termina em segundos e nenhum contêiner aparece, rode a imagem publicada pelo GitHub Actions em vez de compilar no servidor.
 
-- Workflow: `.github/workflows/docker-publish.yml` publica `ghcr.io/allehkeyroz/prospect:latest` e `:sha` a cada push em `master`/`main`.
+- Workflow: `.github/workflows/docker-publish.yml` publica `ghcr.io/allehkeyroz/prospect:latest` (minimal, sem banco) e `:full` (app completo).
 - No GitHub, abra **Packages** → `prospect` → *Package settings* → *Change visibility* → **Public**. Se o pacote estiver privado, o EasyPanel não consegue baixar e o container não sobe.
-- No EasyPanel, crie um **App** com `Source = Docker Image`, imagem `ghcr.io/allehkeyroz/prospect:latest`, porta `3000`, volume em `/data`.
+- No EasyPanel, crie um **App** com `Source = Docker Image`, porta `3000`. Use `:latest` para o modo diagnóstico ou `:full` para o app completo; no app completo, monte o volume em `/data`.
 - Para rodar o app com Docker na sua máquina, use `docker-compose.local.yml`:
   `docker compose -f docker-compose.local.yml up -d`.
 

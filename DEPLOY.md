@@ -5,6 +5,35 @@ Para arquitetura e comandos locais, veja `README.md` e `AGENTS.md`.
 
 ---
 
+## 0. Modo atual: diagnóstico sem banco
+
+O `Dockerfile` da raiz agora sobe **apenas Fastify + UI estática**. Ele não instala nem importa DuckDB, PostgreSQL ou módulos nativos (`package.minimal.json` + `src/api/server.minimal.ts`).
+
+Objetivo: separar “app/banco” de “plataforma/build”.
+
+- Configure o serviço com **Build = Dockerfile** e porta `3000`. Volume não é necessário neste modo.
+- `GET /health` deve responder:
+
+  ```json
+  {"ok":true,"mode":"no-db","db_enabled":false,"db_ready":false,...}
+  ```
+
+- `GET /` e `GET /admin` mostram a página de diagnóstico.
+- `GET /app` mostra o shell real da UI (sem dados).
+- `GET /api/*` responde 503.
+
+Interpretação:
+
+| Resultado | Conclusão |
+|---|---|
+| Container sobe e o servidor fica estável | O travamento vinha do app completo/banco ou do build nativo |
+| Servidor continua travando | Problema de plataforma/build/rede, não do DuckDB |
+| Container não sobe / sem log `boot` | Imagem, porta, recursos ou registry |
+
+Para voltar ao app completo: no EasyPanel, troque o caminho do Dockerfile para **`Dockerfile.full`** (ou use a imagem `ghcr.io/allehkeyroz/prospect:full`), monte o volume em `/data` e siga as seções 2–6.
+
+---
+
 ## 1. O que significa “deploy funciona, app não fica no ar”
 
 O EasyPanel pode mostrar **Success** mesmo quando nada está atendendo. Separe em três camadas:

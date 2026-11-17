@@ -1,14 +1,19 @@
-FROM node:24-bookworm-slim AS deps
-WORKDIR /app
-COPY package.json package-lock.json* ./
-# EasyPanel pode injetar NODE_ENV=production no build. Forçamos devDependencies
-# porque o estágio de build precisa de TypeScript (tsc).
-RUN npm ci --include=dev
+# MODO DIAGNÓSTICO — sem banco.
+#
+# Esta imagem NÃO instala nem importa DuckDB, PostgreSQL ou qualquer módulo
+# nativo. Ela sobe apenas Fastify + arquivos estáticos, para isolar se o
+# travamento do servidor vem do banco/build nativo ou da plataforma.
+#
+# App completo: use o Dockerfile.full.
 
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+# Apenas o necessário para o servidor de diagnóstico. Sem @duckdb, sem pg.
+COPY package.minimal.json ./package.json
+RUN npm install --include=dev --no-audit --no-fund
+COPY tsconfig.minimal.json ./tsconfig.json
+COPY src/config.ts ./src/config.ts
+COPY src/api/server.minimal.ts ./src/api/server.minimal.ts
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
@@ -16,34 +21,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
-# Sem estas variáveis a aplicação sobe em modo degradado: a UI abre, /health
-# responde 200 e /admin mostra o estado. Nenhuma variável é obrigatória.
-#
-# DATA_DIR é a raiz do volume. DUCKDB_PATH/APP_DB_PATH/DUCKDB_TEMP_DIR
-# derivam dela no src/config.ts; não fixamos os caminhos aqui para que trocar
-# DATA_DIR mova a base inteira sem deixar arquivos para trás.
-ENV DATA_DIR=/data
-# Padrão seguro para VPS pequena. Para o snapshot completo (26 GB de CSV)
-# suba para 8GB/8 no Environment do EasyPanel.
-ENV MEMORY_LIMIT=2GB
-ENV THREADS=4
-RUN mkdir -p /data
-# aria2c acelera o download dos 37 ZIPs da Receita (segmentos + conexões
-# paralelas). Sem ele, prepare:snapshot cai no downloader em Node.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends aria2 ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/src ./src
-COPY --from=build /app/public ./public
-COPY --from=build /app/docs ./docs
-COPY --from=build /app/db ./db
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY public ./public
 EXPOSE 3000
-# O EasyPanel já faz o próprio health check. O HEALTHCHECK do Docker pode
-# marcar o container como unhealthy e tirá-lo do proxy sem gerar log nenhum.
-# O banco fica em /data (volume). Sem banco, a API sobe em modo degradado para
-# a UI abrir e o terminal ficar disponível.
-CMD ["node", "dist/src/api/server.js"]
+CMD ["node", "dist/src/api/server.minimal.js"]
