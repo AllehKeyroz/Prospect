@@ -33,6 +33,8 @@ const ONLY = (process.env.SYNC_ONLY ?? '')
   .map((value) => value.trim())
   .filter(Boolean);
 const FORCE = process.env.SYNC_FORCE === 'true';
+const MAX_ATTEMPTS = Math.max(1, Number(process.env.SYNC_MAX_ATTEMPTS ?? 30) || 30);
+const PART_DELAY_MS = Math.max(0, Number(process.env.SYNC_PART_DELAY_MS ?? 200) || 0);
 
 const AUTH_RFB = `Basic ${Buffer.from(`${config.sourceToken}:`).toString('base64')}`;
 
@@ -186,6 +188,9 @@ async function uploadPart(name: string, index: number, body: Buffer): Promise<vo
   );
   if (!response.ok) {
     throw new Error(`parte ${part}: ${response.status} ${(await response.text()).slice(0, 300)}`);
+  }
+  if (PART_DELAY_MS > 0) {
+    await new Promise((resolve) => setTimeout(resolve, PART_DELAY_MS));
   }
 }
 
@@ -351,15 +356,17 @@ async function main(): Promise<void> {
   for (const [index, file] of files.entries()) {
     log(`[${index + 1}/${files.length}] ${file.name} (${file.bytes} bytes)`);
     let lastError: unknown = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         await syncFile(file, manifest);
         lastError = null;
         break;
       } catch (error) {
         lastError = error;
-        log(`[erro] ${file.name} tentativa ${attempt}/3: ${(error as Error).message}`);
-        await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
+        log(`[erro] ${file.name} tentativa ${attempt}/${MAX_ATTEMPTS}: ${(error as Error).message}`);
+        const wait = Math.min(30, attempt * 3);
+        log(`[retry] aguardando ${wait}s e retomando...`);
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000));
       }
     }
     if (lastError) throw lastError;
