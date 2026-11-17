@@ -29,7 +29,10 @@ jobs:
           echo "health body:"
           cat /tmp/health.json || true
           echo
+          grep -q '"db_ready":false' /tmp/health.json
           curl -fsS http://127.0.0.1:3000/ > /dev/null
+          curl -fsS http://127.0.0.1:3000/admin > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ready)" = "503"
           test "$code" = "200"
 
       - name: Container logs and state

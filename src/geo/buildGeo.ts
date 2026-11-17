@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { config } from '../config.js';
 
 /**
  * Gera os arquivos estáticos do mapa a partir das malhas e localidades do IBGE.
@@ -14,8 +15,8 @@ import path from 'node:path';
  * e o mapa consome apenas os arquivos locais.
  */
 
-const OUT_DIR = path.resolve('public/geo');
-const RAW_DIR = path.resolve('data/geo/raw');
+const OUT_DIR = path.join(config.publicDir, 'geo');
+const RAW_DIR = path.join(config.dataDir, 'geo', 'raw');
 
 const SOURCES = {
   localidades:

@@ -74,7 +74,14 @@ async function loadWithPaths(
 
   if (reset) {
     for (const suffix of ['', '.wal', '.tmp']) {
-      await rm(`${config.dbPath}${suffix}`, { force: true });
+      try {
+        await rm(`${config.dbPath}${suffix}`, { force: true });
+      } catch (error) {
+        throw new Error(
+          `Não foi possível recriar ${config.dbPath} (${(error as Error).message}). ` +
+            'No Windows, pare a API antes da carga; no Linux/Docker o painel recarrega a base sozinho.',
+        );
+      }
     }
   }
 
@@ -117,7 +124,7 @@ async function loadWithPaths(
   }
 
   console.log('[geo] municípios IBGE e de-para RFB');
-  await exec(ibgeMunicipiosSql(path.resolve('public/geo/municipios_ibge.csv')));
+  await exec(ibgeMunicipiosSql(path.join(config.publicDir, 'geo', 'municipios_ibge.csv')));
   await exec(MUNICIPIO_IBGE_SQL);
 
   if (hasData(paths.socios)) {

@@ -49,15 +49,23 @@
   <header>
     <h1>Administração da base</h1>
     <span id="db" class="pill">verificando…</span>
+    <span id="pg" class="pill">postgres</span>
     <span id="jobst" class="pill">sem carga</span>
     <a href="/" style="margin-left:auto;color:#8b9bb0;font-size:12px">voltar ao app</a>
   </header>
 
   <main>
     <section>
-      <h2>Base atual</h2>
+      <h2>App (DuckDB)</h2>
       <div class="grid" id="counts"></div>
       <p class="meta" id="meta" style="margin:12px 0 0"></p>
+      <p class="meta" id="paths" style="margin:6px 0 0"></p>
+    </section>
+
+    <section>
+      <h2>Postgres (opcional)</h2>
+      <p class="meta" id="pg-meta" style="margin:0 0 12px">—</p>
+      <div class="grid" id="pg-counts"></div>
     </section>
 
     <section>
@@ -72,13 +80,16 @@
     <section>
       <h2>Ações</h2>
       <div class="actions">
-        <button data-kind="migrate" class="secondary">Aplicar migrações</button>
-        <button data-kind="download" class="secondary">Baixar e extrair</button>
+        <button data-kind="sample">Carregar amostra (app)</button>
+        <button data-kind="snapshot" class="secondary">Baixar + carregar snapshot (app)</button>
+        <button data-kind="migrate" class="secondary">Aplicar migrações (Postgres)</button>
+        <button data-kind="download" class="secondary">Baixar/extrair snapshot</button>
         <button data-kind="load" class="secondary">Carregar no Postgres</button>
-        <button data-kind="all">Baixar + extrair + carregar</button>
+        <button id="reload-base" class="secondary">Recarregar base</button>
       </div>
       <p class="meta" style="margin:12px 0 0">
-        Cada ação roda em segundo plano e pode levar horas. O log abaixo acompanha ao vivo.
+        O app lê o DuckDB em <code>/data</code>. A amostra leva ~3–5 min; o snapshot completo baixa ~7 GB
+        e extrai ~26 GB. Cada ação roda em segundo plano e o log abaixo acompanha ao vivo.
       </p>
     </section>
 

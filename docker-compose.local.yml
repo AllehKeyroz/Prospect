@@ -11,10 +11,10 @@ services:
       APP_DB_PATH: /data/app.duckdb
       DUCKDB_TEMP_DIR: /data/tmp
       DATA_DIR: /data
-      MEMORY_LIMIT: 8GB
-      THREADS: 8
+      MEMORY_LIMIT: 2GB
+      THREADS: 4
       SNAPSHOT: 2026-10
     volumes:
       - ./data:/data
-    mem_limit: 12g
+    mem_limit: 4g
     restart: unless-stopped

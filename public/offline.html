@@ -34,9 +34,9 @@
       Isso é esperado em um deploy novo, sem configuração.
     </p>
     <ul>
-      <li>Abra a <a href="/admin" style="background:none;padding:0;color:#60a5fa;display:inline">administração da base</a> para ver o estado e disparar a carga.</li>
-      <li>Configure <code>DATABASE_URL</code> no serviço para conectar o PostgreSQL.</li>
-      <li>O endpoint <code>/health</code> responde 200 mesmo sem base.</li>
+      <li>Abra a <a href="/admin" style="background:none;padding:0;color:#60a5fa;display:inline">administração da base</a> e clique em <strong>Carregar amostra (app)</strong>.</li>
+      <li>No terminal do serviço, o equivalente é <code>npm run setup:sample</code>.</li>
+      <li>O endpoint <code>/health</code> responde 200 mesmo sem base; <code>/ready</code> só responde 200 quando o app já consegue consultar.</li>
     </ul>
     <a href="/admin">Abrir administração</a>
   </main>

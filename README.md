@@ -149,6 +149,8 @@ npm run build; $env:NODE_ENV='production'; npm start
 | `npm run history:validate-2019` | Valida o pacote 2019 por amostragem contra o snapshot local |
 | `npm run sample` | Baixa dimensões + amostra do shard 1 e grava em `data/sample/` |
 | `npm run ingest:sample` | Cria/recria `data/cnpj.duckdb` a partir da amostra |
+| `npm run setup:sample` | `sample` + `ingest:sample` em um comando |
+| `npm run setup:snapshot` | `prepare:snapshot` + `ingest:snapshot` em um comando |
 | `npm run dev` | API + UI em modo desenvolvimento (`tsx watch`) |
 | `npm run build` | Compila TypeScript para `dist/` |
 | `npm start` | Sobe a API compilada |
@@ -383,89 +385,71 @@ A tabela `estabelecimentos_busca` já traz:
 
 ## 6. Deploy no EasyPanel
 
-O MVP usa **DuckDB em arquivo**: não é necessário criar PostgreSQL, MySQL ou ClickHouse. Basta um serviço Node com volume persistente.
+O app usa **DuckDB em arquivo** como base de leitura: não é necessário criar PostgreSQL para ele subir. O único requisito é um serviço Node com **volume persistente em `/data`**.
+
+> Guia operacional completo, com checklist e diagnóstico: **[`DEPLOY.md`](DEPLOY.md)**.
 
 ### 6.1 Criar o serviço
 
 1. No EasyPanel, crie um novo **App**.
 2. Conecte o repositório (GitHub) ou faça upload do projeto.
-3. Build: **Dockerfile** (o arquivo `Dockerfile` já está no projeto).
-4. Porta: `3000`.
-5. Healthcheck: `GET /health`.
-6. Crie um **volume persistente** montado em `/data` com pelo menos **20 GB** (para a amostra). Para o snapshot completo, 100–200 GB.
-7. Configure as variáveis:
+3. Build: **Dockerfile** (não use Compose; não existe `docker-compose.yml` na raiz).
+4. Porta: `3000` (é a porta em que o processo escuta; não altere `PORT` sem alterar aqui).
+5. Healthcheck: `GET /health` na porta `3000`. **Não use `/ready` como healthcheck** — ele retorna 503 durante a carga e o EasyPanel reiniciaria o container.
+6. Crie um **volume persistente** montado em `/data` com pelo menos **20 GB** para a amostra. Para o snapshot completo, 100–200 GB.
+7. Variáveis: nenhuma é obrigatória. Recomendado definir apenas:
 
 ```env
-NODE_ENV=production
-PORT=3000
-HOST=0.0.0.0
-DUCKDB_PATH=/data/cnpj.duckdb
-APP_DB_PATH=/data/app.duckdb
-DUCKDB_TEMP_DIR=/data/tmp
-DATA_DIR=/data
-MEMORY_LIMIT=8GB
-THREADS=8
-SNAPSHOT=2026-10
-SAMPLE_SHARD=1
-SAMPLE_LINES=50000
-SAMPLE_INCLUDE_SIMPLES=true
+ADMIN_TOKEN=troque-por-um-token-longo
+# DATABASE_URL=postgres://usuario:senha@host:5432/banco?sslmode=disable
 ```
 
-8. Limite de memória do container: **12 GB** (deixa 4 GB para o sistema). O DuckDB usará no máximo 8 GB.
-   > **Atenção:** esse valor só faz sentido em uma máquina com 16 GB. Em servidor
-   > de 4–8 GB, um limite de 12 GB faz o Swarm **não conseguir agendar a tarefa**:
-   > o deploy aparece como sucesso em segundos, nenhum contêiner é criado e não
-   > há log de runtime. Use `MEMORY_LIMIT=1GB` e limite de container de 2 GB, ou
-   > remova o limite.
+`DATA_DIR` já vem do Dockerfile como `/data`; `DUCKDB_PATH`, `APP_DB_PATH` e `DUCKDB_TEMP_DIR` derivam dele. Se você sobrescrever `DUCKDB_PATH` com um caminho fora de `/data`, a base será perdida a cada redeploy.
+
+8. Memória do container: **2 GB** basta para a amostra; **4 GB** para o snapshot completo. O Dockerfile limita o DuckDB a 2 GB/4 threads por padrão; para carga completa defina `MEMORY_LIMIT=8GB` e `THREADS=8`.
+   > **Atenção:** limite de memória maior que a máquina faz o Swarm **não agendar** a tarefa: o deploy aparece como sucesso em segundos, nenhum contêiner é criado e não há log de runtime. Em VPS de 4 GB, use limite de container de 2 GB.
 9. Faça o deploy.
 
-### 6.2 Primeira carga
+### 6.2 Primeiro deploy e carga da base
 
-Se o banco ainda não existe, o app sobe em **modo degradado**: o processo fica vivo, a UI abre, `/health` responde 200 com `ok:true` e `db_ready:false` (liveness), e as rotas `/api/*` retornam 503 (readiness). Isso evita o restart loop e permite abrir o terminal. Depois rode:
+Um deploy novo abre a **página de estado** (“A base ainda não foi carregada”). Isso é esperado: o processo está no ar e o proxy funciona; falta a base.
+
+1. Abra `https://seu-dominio/admin`.
+2. Clique em **Carregar amostra (app)**. Leva ~3–5 minutos (download + parsing).
+3. O log acompanha ao vivo. Ao terminar, o app recarrega o DuckDB sozinho — **não precisa reiniciar o serviço**.
+4. Confirme em `/health`: `db_ready:true` e as contagens; abra `/` e o app real aparece.
+
+Alternativa por terminal (se o botão não estiver disponível):
 
 ```bash
-npm run sample
-npm run ingest:sample
+npm run setup:sample
 ```
 
-A amostra leva **~3–5 minutos** (download + parsing). Depois reinicie o serviço. O banco estará em `/data/cnpj.duckdb`.
+Depois, no `/admin`, clique em **Recarregar base** — ou reinicie o serviço. O banco fica em `/data/cnpj.duckdb`.
 
-> Se o banco estiver ausente, o serviço não entra mais em restart loop: ele fica em modo degradado. Abra o terminal, rode os dois comandos acima e reinicie o serviço. O volume `/data` precisa estar montado antes da carga.
+> No Windows local a API mantém o arquivo travado. Pare o servidor antes de rodar `npm run setup:sample`.
 
 ### 6.3 Atualização mensal (amostra)
 
-No terminal do serviço:
-
-```bash
-npm run sample
-npm run ingest:sample
-```
-
-Reinicie o serviço. O `sample` reaproveita os ZIPs já baixados; só baixa o que falta.
+Abra `/admin` e clique em **Carregar amostra (app)** novamente, ou rode `npm run setup:sample` no terminal. O `sample` reaproveita os ZIPs já baixados; só baixa o que falta. A recarga é automática quando a carga é disparada pelo painel.
 
 ### 6.4 Volume e backup
 
-- O arquivo `data/cnpj.duckdb` é o banco inteiro. Faça backup periódico do volume `/data`.
+- O arquivo `/data/cnpj.duckdb` é a base do app. Faça backup periódico do volume `/data`.
 - Os ZIPs em `/data/raw` podem ser apagados depois da carga; eles são reproduzíveis a partir da fonte.
-- Se o volume for perdido, basta rodar `npm run sample && npm run ingest:sample` novamente.
+- Se o volume for perdido, rode `npm run setup:sample` ou use o botão do `/admin`.
 
 ### 6.5 Deploy por imagem pronta (contorna o build no EasyPanel)
 
-Se o build do EasyPanel termina em segundos e nenhum contêiner aparece, rode a
-imagem publicada pelo GitHub Actions em vez de compilar no servidor.
+Se o build do EasyPanel termina em segundos e nenhum contêiner aparece, rode a imagem publicada pelo GitHub Actions em vez de compilar no servidor.
 
-- Workflow: `.github/workflows/docker-publish.yml` publica
-  `ghcr.io/allehkeyroz/prospect:latest` e `:sha` a cada push em `master`/`main`.
-- No GitHub, abra **Packages** → `prospect` → *Package settings* → *Change
-  visibility* → **Public** (o repositório já é público).
-- No EasyPanel, crie um **App** com `Source = Docker Image`,
-  imagem `ghcr.io/allehkeyroz/prospect:latest`, porta `3000`, volume em `/data`.
+- Workflow: `.github/workflows/docker-publish.yml` publica `ghcr.io/allehkeyroz/prospect:latest` e `:sha` a cada push em `master`/`main`.
+- No GitHub, abra **Packages** → `prospect` → *Package settings* → *Change visibility* → **Public**. Se o pacote estiver privado, o EasyPanel não consegue baixar e o container não sobe.
+- No EasyPanel, crie um **App** com `Source = Docker Image`, imagem `ghcr.io/allehkeyroz/prospect:latest`, porta `3000`, volume em `/data`.
 - Para rodar o app com Docker na sua máquina, use `docker-compose.local.yml`:
   `docker compose -f docker-compose.local.yml up -d`.
-  O `docker-compose.yml` da raiz é reservado para o serviço Compose do
-  EasyPanel (carga no PostgreSQL).
 
-### 6.6 Diagnóstico de 502 e 404
+### 6.6 Diagnóstico de 502, 404 e “app fora do ar”
 
 Antes de mexer no `.env`, olhe o status HTTP do domínio:
 
@@ -473,54 +457,34 @@ Antes de mexer no `.env`, olhe o status HTTP do domínio:
 | --- | --- | --- |
 | `502` + HTML do EasyPanel | Domínio roteado, mas nenhum contêiner atende a porta | Deploy/porta/replicas do serviço |
 | `404` + HTML do EasyPanel | Nenhuma rota para esse host: domínio não está no serviço | Aba **Domains**: adicionar/recriar o domínio |
-| `200` + JSON `{"ok":...}` | Aplicação respondendo | Falta só carregar o DuckDB |
+| `200` + página “A base ainda não foi carregada” | Aplicação no ar, banco ausente | `/admin` → **Carregar amostra (app)** |
+| `200` + JSON `{"ok":true,"db_ready":true,...}` | Aplicação e base prontas | Nada a fazer |
 
-O 404 do EasyPanel e o 404 da aplicação são diferentes: a aplicação sempre
-responde JSON em `/api/*` e `index.html` nas rotas de UI.
+O 404 do EasyPanel e o 404 da aplicação são diferentes: a aplicação sempre responde JSON em `/api/*` e HTML nas rotas de UI.
 
-Com o contêiner de pé, o primeiro log é `"msg":"boot"` com `port`, `host`,
-`db_ready` e `db_path`. Se essa linha não aparece, o processo não executou:
-o problema é imagem/porta/plataforma, não a aplicação.
+Com o contêiner de pé, o primeiro log é `"msg":"boot"` com `port`, `host`, `db_ready`, `db_path` e `data_dir`. Se essa linha não aparece, o processo não executou: o problema é imagem/porta/plataforma, não a aplicação.
 
-**Deploy “Success” em poucos segundos, nenhum contêiner e nenhum log** é
-tarefa do Swarm que não pode ser agendada. Quase sempre é um destes:
+**Deploy “Success” em poucos segundos, nenhum contêiner e nenhum log** é tarefa do Swarm que não pode ser agendada. Quase sempre é um destes:
 
 - limite de memória/CPU maior que a máquina (ex.: 12 GB em VPS de 4 GB);
 - mount apontando para um volume que não existe mais;
 - réplicas = 0.
 
-Nesse caso não adianta Redeploy: ajuste os recursos/mounts e implante de novo.
-No terminal do servidor, `docker service ls` e `docker service ps <serviço>
---no-trunc` mostram o motivo (`no suitable node`, mount inválido etc.).
+Nesse caso não adianta Redeploy: ajuste os recursos/mounts e implante de novo. No terminal do servidor, `docker service ls` e `docker service ps <serviço> --no-trunc` mostram o motivo (`no suitable node`, mount inválido etc.).
 
-### 6.7 Carga no PostgreSQL (Receita completa)
+### 6.7 PostgreSQL (opcional, carga paralela)
 
-O PostgreSQL é o banco de destino. A carga completa roda em um container
-descartável **dentro do EasyPanel**: o servidor baixa da Receita e grava direto
-no Postgres interno, sem expor o banco e sem enviar 26 GB pela sua internet.
+O PostgreSQL 17 é o banco de destino da migração, mas **o app ainda não lê dele**. Carregar o Postgres não deixa o app pronto; quem deixa é o DuckDB da seção 6.2.
 
-1. O compose builda a imagem a partir do `Dockerfile` do próprio repositório —
-   não depende de o pacote do GHCR estar público.
-2. No EasyPanel: **New Service → Compose**.
-3. Repositório `AllehKeyroz/Prospect`, branch `master`, arquivo
-   `docker-compose.yml` (o padrão da raiz).
-4. Em **Environment**, defina:
-   `DATABASE_URL=postgres://ProspectDB:SENHA@sistemas_prospect-db:5432/prospect-db?sslmode=disable`
-5. Deploy e acompanhe os logs: `aria2` baixa os 37 ZIPs, extrai e faz `COPY`.
-6. Ao terminar, o container sai. Confira as contagens em `core.meta` e
-   `history.snapshots`.
-
-Pré-requisitos: ~40 GB livres para ZIPs + CSVs (o banco ocupa mais) e o
-Postgres acessível pelo hostname interno.
-
-Validação rápida (50 mil linhas, ~45 s) no terminal de um serviço com a imagem:
+Use o `/admin` (com `DATABASE_URL` configurada) ou o terminal:
 
 ```bash
-npm run db:load:sample
+npm run db:migrate          # aplica 001–004
+npm run db:load:sample      # validação rápida (50 mil linhas)
+npm run db:load:snapshot    # snapshot completo já extraído
 ```
 
-Nessa amostra o loader já cria as tabelas principais, o read model, os 24
-índices e as estatísticas — é o mesmo código da carga cheia.
+Para o snapshot completo, baixe/extraia com `/admin` → **Baixar/extrair snapshot** (ou `npm run prepare:snapshot`): são 37 ZIPs (~7,3 GB) e ~26 GB de CSV. Garanta ~40 GB livres no volume e o Postgres acessível pela `DATABASE_URL`.
 
 ---
 

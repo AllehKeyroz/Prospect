@@ -18,7 +18,16 @@ ENV PORT=3000
 ENV HOST=0.0.0.0
 # Sem estas variáveis a aplicação sobe em modo degradado: a UI abre, /health
 # responde 200 e /admin mostra o estado. Nenhuma variável é obrigatória.
+#
+# DATA_DIR é a raiz do volume. DUCKDB_PATH/APP_DB_PATH/DUCKDB_TEMP_DIR
+# derivam dela no src/config.ts; não fixamos os caminhos aqui para que trocar
+# DATA_DIR mova a base inteira sem deixar arquivos para trás.
 ENV DATA_DIR=/data
+# Padrão seguro para VPS pequena. Para o snapshot completo (26 GB de CSV)
+# suba para 8GB/8 no Environment do EasyPanel.
+ENV MEMORY_LIMIT=2GB
+ENV THREADS=4
+RUN mkdir -p /data
 # aria2c acelera o download dos 37 ZIPs da Receita (segmentos + conexões
 # paralelas). Sem ele, prepare:snapshot cai no downloader em Node.
 RUN apt-get update \

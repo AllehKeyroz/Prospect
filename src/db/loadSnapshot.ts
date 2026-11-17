@@ -639,7 +639,7 @@ async function main(): Promise<void> {
     }
 
     // 4. municípios IBGE (arquivo local, vírgula e cabeçalho)
-    const ibgeFile = path.resolve('public/geo/municipios_ibge.csv');
+    const ibgeFile = path.join(config.publicDir, 'geo', 'municipios_ibge.csv');
     if (existsWithData(ibgeFile)) {
       const started = Date.now();
       await query(client, 'TRUNCATE stg_municipio_ibge');

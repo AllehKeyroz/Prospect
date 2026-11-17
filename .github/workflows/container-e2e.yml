@@ -1,0 +1,77 @@
+name: container-e2e
+
+# Teste manual do fluxo real de deploy: sobe a imagem sem base, dispara a carga
+# pelo /admin, espera a recarga automática e valida /ready e /api/empresas.
+#
+# Rode em Actions → container-e2e → Run workflow. Leva ~5–10 min (baixa a
+# amostra da Receita). Não roda em todo push para não gastar tempo/banda.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  load-and-serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t prospect:e2e .
+
+      - name: Start container with persistent volume
+        run: |
+          mkdir -p volume
+          docker run -d --name prospect-e2e -p 3000:3000 \
+            -v "$PWD/volume:/data" prospect:e2e
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health || true)
+            echo "attempt=${attempt} status=${code}"
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/health
+          echo
+
+      - name: Trigger sample load through /admin
+        run: |
+          job=$(curl -fsS -X POST -H 'content-type: application/json' \
+            -d '{"kind":"sample"}' http://127.0.0.1:3000/api/admin/jobs | jq -r .id)
+          echo "job=$job"
+          echo "$job" > /tmp/job-id
+          for attempt in $(seq 1 120); do
+            status=$(curl -fsS http://127.0.0.1:3000/api/admin/overview | jq -r '.job.status')
+            echo "attempt=${attempt} status=${status}"
+            if [ "$status" = "success" ]; then exit 0; fi
+            if [ "$status" = "error" ]; then
+              echo "carga falhou; log:"
+              curl -fsS "http://127.0.0.1:3000/api/admin/jobs/$job/logs?after=0" | jq -r '.logs[].line' | tail -100
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "timeout aguardando a carga"
+          exit 1
+
+      - name: Validate ready and API
+        run: |
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ready || true)
+            echo "attempt=${attempt} ready=${code}"
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          test "$code" = "200"
+          curl -fsS http://127.0.0.1:3000/health | jq -e '.db_ready == true'
+          curl -fsS 'http://127.0.0.1:3000/api/empresas?page_size=1' | jq -e '.data | length == 1'
+
+      - name: Container logs and state
+        if: always()
+        run: |
+          docker ps -a
+          docker logs prospect-e2e || true
+          docker inspect prospect-e2e --format '{{json .State}}' || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f prospect-e2e || true

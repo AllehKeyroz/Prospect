@@ -80,7 +80,7 @@ export interface ValidationReport {
 }
 
 export function readValidationReport(): ValidationReport | null {
-  const file = path.resolve('docs/historico/2019-validacao.json');
+  const file = path.join(config.docsDir, 'historico', '2019-validacao.json');
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as ValidationReport;

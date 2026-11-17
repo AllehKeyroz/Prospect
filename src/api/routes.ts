@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
-import { query, queryOne } from '../db/duckdb.js';
+import { isOpen, query, queryOne } from '../db/duckdb.js';
 import {
   createSavedSearch,
   deleteSavedSearch,
@@ -128,30 +128,17 @@ function addressLine(row: Record<string, unknown>): string {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/health', async (_request, reply) => {
-    try {
-      await queryOne('SELECT 1 AS ok');
-      const metaRows = await query<{ key: string; value: string }>('SELECT key, value FROM meta');
-      const meta = metaToObject(metaRows);
-      const memory = process.memoryUsage();
-      return {
-        ok: true,
-        status: 'ok',
-        db_ready: true,
-        snapshot: meta.snapshot ?? config.snapshot,
-        generated_at: meta.generated_at ?? null,
-        rows: {
-          estabelecimentos: asNumber(meta.estabelecimentos),
-          empresas: asNumber(meta.empresas),
-          socios: asNumber(meta.socios),
-        },
-        memory_mb: Math.round(memory.rss / 1024 / 1024),
-        uptime_s: Math.round(process.uptime()),
-      };
-    } catch (error) {
-      app.log.error(error);
-      return reply.status(503).send({ ok: false, error: 'Banco indisponível' });
-    }
+  // A base pode ser carregada depois do boot (pelo /admin). Em vez de registrar
+  // as rotas só quando o DuckDB existe, mantemos a árvore fixa e respondemos 503
+  // enquanto ele não estiver aberto. Isso elimina o restart manual pós-carga.
+  app.addHook('onRequest', async (request, reply) => {
+    if (!request.url.startsWith('/api/') || request.url.startsWith('/api/admin')) return;
+    if (isOpen()) return;
+    return reply.status(503).send({
+      error: 'Base ainda não carregada',
+      db_ready: false,
+      hint: 'Abra /admin e carregue a amostra (ou rode npm run setup:sample no terminal).',
+    });
   });
 
   app.get('/api/meta', async () => {

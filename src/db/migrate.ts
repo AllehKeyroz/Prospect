@@ -1,10 +1,24 @@
 import 'dotenv/config';
+import fs from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const { Client } = pg;
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+/** `db/migrations` pelo cwd e, se preciso, pela localização do módulo. */
+function resolveMigrationsDir(): string {
+  const candidates = [
+    path.resolve('db/migrations'),
+    path.resolve(moduleDir, '..', '..', 'db/migrations'),
+    path.resolve(moduleDir, '..', '..', '..', 'db/migrations'),
+    path.resolve(moduleDir, '..', 'db/migrations'),
+  ];
+  return candidates.find((dir) => fs.existsSync(dir)) ?? candidates[0];
+}
 
 export interface MigrateOptions {
   connectionString: string;
@@ -13,7 +27,7 @@ export interface MigrateOptions {
 
 /** Aplica as migrações pendentes em db/migrations (idempotente). */
 export async function runMigrations({ connectionString, log = console.log }: MigrateOptions): Promise<void> {
-  const migrationsDir = path.resolve('db/migrations');
+  const migrationsDir = resolveMigrationsDir();
   const client = new Client({
     connectionString,
     connectionTimeoutMillis: 15_000,
