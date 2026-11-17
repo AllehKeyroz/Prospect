@@ -29,6 +29,10 @@ services:
     volumes:
       - app_data:/data
     restart: unless-stopped
+    # Acesso direto enquanto o domínio não roteia. O aviso do EasyPanel é
+    # informativo: a 3001 é exclusiva e não conflita com nada no servidor.
+    ports:
+      - '3001:3000'
 
 volumes:
   app_data:
