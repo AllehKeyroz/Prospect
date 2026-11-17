@@ -11,7 +11,7 @@ WORKDIR /app
 # Apenas o necessário para o servidor de diagnóstico. Sem @duckdb, sem pg.
 COPY package.minimal.json ./package.json
 RUN npm install --include=dev --no-audit --no-fund
-COPY tsconfig.minimal.json ./tsconfig.json
+COPY tsconfig.minimal.json ./tsconfig.minimal.json
 COPY src/config.ts ./src/config.ts
 COPY src/api/server.minimal.ts ./src/api/server.minimal.ts
 RUN npm run build
