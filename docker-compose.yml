@@ -1,33 +1,18 @@
-# Prospect — stack único (app + Postgres) para o EasyPanel.
+# Prospect — deploy mínimo.
 #
-# Um serviço, uma rede, sem dependência de outro stack. É a configuração que já
-# rodou de forma estável neste servidor.
+# Um único serviço. Não exige .env, não exige Supabase, não exige Postgres.
+# Sem banco, a API sobe em modo degradado: a UI abre, /health responde 200 e
+# /admin mostra o estado da base. Os dados entram depois.
 #
 # No EasyPanel:
-#   1. Environment: POSTGRES_PASSWORD (ou deixe o padrão abaixo)
-#   2. Domains: apontar para o serviço `app`, porta 3000
-#   3. Abrir https://SEU-DOMINIO/admin
+#   1. New Service -> Compose
+#   2. Repositório AllehKeyroz/Prospect, branch master, arquivo docker-compose.yml
+#   3. Deploy
+#   4. Domains -> serviço `app`, porta 3000
 #
-# A migração para o Supabase self-hosted depois é pg_dump/pg_restore: o schema e
-# os dados são Postgres puro.
+# Variáveis são todas opcionais.
 
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: prospect
-      POSTGRES_USER: prospect
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospect_local_dev}
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U prospect -d prospect']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    restart: unless-stopped
-
   app:
     build:
       context: .
@@ -36,26 +21,17 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      DATABASE_URL: postgres://prospect:${POSTGRES_PASSWORD:-prospect_local_dev}@db:5432/prospect?sslmode=disable
       DATA_DIR: /data
-      DUCKDB_PATH: /data/cnpj.duckdb
-      APP_DB_PATH: /data/app.duckdb
-      DUCKDB_TEMP_DIR: /data/tmp
       SNAPSHOT: ${SNAPSHOT:-2026-10}
-      USE_ARIA2: ${USE_ARIA2:-false}
-      DOWNLOAD_PARALLEL: ${DOWNLOAD_PARALLEL:-2}
+      # Sem valor por padrão: a administração fica desligada até existir banco.
+      DATABASE_URL: ${DATABASE_URL:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
-      - load_data:/data
-    depends_on:
-      db:
-        condition: service_healthy
+      - app_data:/data
     restart: unless-stopped
-    # Porta publicada direto no host: elimina o Traefik do caminho enquanto o
-    # domínio não roteia. Depois pode ser removida.
+    # Porta publicada para diagnóstico direto (IP:3001). O domínio usa a 3000.
     ports:
       - '3001:3000'
 
 volumes:
-  db_data:
-  load_data:
+  app_data:

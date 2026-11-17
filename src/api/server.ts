@@ -79,6 +79,8 @@ async function startDegraded(): Promise<void> {
   // A administração da base funciona sem DuckDB: ela lê o PostgreSQL.
   await registerAdminRoutes(app);
 
+  app.get('/', async (_request, reply) => reply.sendFile('offline.html'));
+
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api/')) {
       return reply.status(503).send({
@@ -86,7 +88,7 @@ async function startDegraded(): Promise<void> {
         hint: 'Use /admin para carregar a base no PostgreSQL.',
       });
     }
-    return reply.sendFile('index.html');
+    return reply.sendFile('offline.html');
   });
 
   const shutdown = async (signal: string) => {
@@ -112,6 +114,7 @@ async function main(): Promise<void> {
   await app.register(fastifyStatic, {
     root: path.resolve('public'),
     prefix: '/',
+    index: false,
   });
 
   app.get('/admin', async (_request, reply) => reply.sendFile('admin.html'));
@@ -122,6 +125,8 @@ async function main(): Promise<void> {
     await startDegraded();
     return;
   }
+
+  app.get('/', async (_request, reply) => reply.sendFile('index.html'));
 
   await openDatabase({ readOnly: true });
   await openAppDb();
