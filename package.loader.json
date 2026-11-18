@@ -1,0 +1,28 @@
+{
+  "name": "cnpj-prospect-loader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Loader dos ZIPs do Supabase Storage para o PostgreSQL",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.loader.json",
+    "start": "node dist/src/tools/loadFromStorage.js"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "iconv-lite": "^0.7.3",
+    "pg": "^8.23.1",
+    "pg-copy-streams": "^7.0.0",
+    "yauzl": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/pg-copy-streams": "^1.2.5",
+    "@types/yauzl": "^3.4.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -47,6 +47,15 @@ jobs:
         if: always()
         run: docker rm -f prospect-minimal || true
 
+  # Imagem do loader (Storage -> Postgres). Só valida o build; rodar exige DB.
+  loader-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build loader image
+        run: docker build -f Dockerfile.loader -t prospect:loader .
+
   # Aplicação completa (DuckDB), para garantir que ela continua compilando.
   full-app:
     runs-on: ubuntu-latest

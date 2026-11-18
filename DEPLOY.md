@@ -276,3 +276,48 @@ node dist/src/tools/syncStorage.js
 
 Antes de rodar em produção, troque a `SUPABASE_SERVICE_ROLE_KEY` temporária e mantenha o bucket privado.
 
+---
+
+## 11. Carregar o Storage no Postgres (loader)
+
+O loader é uma imagem separada (`Dockerfile.loader`, tag `:loader`) porque precisa de `pg`, `yauzl` e `iconv-lite`, mas **não** de DuckDB nem da UI.
+
+Ele:
+1. lê `cnpj-raw/<snapshot>/manifest.json`;
+2. baixa as partes e concatena em `/data/raw/<snapshot>/`;
+3. extrai/transcodifica para `/data/extracted/<snapshot>/`;
+4. executa o loader do Postgres (`COPY`, `core`, `read`, índices, `meta`).
+
+**Onde rodar:** dentro da rede do Supabase, para resolver `db:5432`. O lugar mais simples é adicionar um serviço temporário no Compose do Supabase:
+
+```yaml
+  loader:
+    image: ghcr.io/allehkeyroz/prospect:loader
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_BUCKET: cnpj-raw
+      SNAPSHOT: 2026-10
+      DATA_DIR: /data
+    volumes:
+      - loader-data:/data
+    networks:
+      - default
+```
+
+- `POSTGRES_PASSWORD` é a senha real do Postgres do Supabase (não use a de exemplo).
+- O volume `loader-data` precisa de ~30 GB livres (CSVs extraídos); os ZIPs são apagados após a extração.
+- Rode uma vez e acompanhe os logs. O processo termina sozinho.
+- Para testar sem tocar no banco: `LOAD_ONLY=Cnaes.zip,Motivos.zip` e `LOAD_SKIP_DB=true`.
+- Depois do sucesso, remova o serviço e o volume `loader-data` para liberar espaço.
+
+Valide no Postgres:
+
+```sql
+select key, value from core.meta order by key;
+select count(*) from core.estabelecimentos;
+select count(*) from read.estabelecimentos_busca;
+```
+
+

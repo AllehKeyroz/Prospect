@@ -52,3 +52,12 @@ jobs:
           push: true
           tags: |
             ghcr.io/allehkeyroz/prospect:full
+
+      - name: Build e push (loader, Storage -> Postgres)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.loader
+          push: true
+          tags: |
+            ghcr.io/allehkeyroz/prospect:loader

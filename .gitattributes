@@ -10,5 +10,6 @@
 *.yaml text eol=lf
 Dockerfile text eol=lf
 Dockerfile.full text eol=lf
+Dockerfile.loader text eol=lf
 .dockerignore text eol=lf
 .gitignore text eol=lf

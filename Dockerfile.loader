@@ -1,0 +1,33 @@
+# Loader: Supabase Storage -> PostgreSQL.
+#
+# Roda como serviço temporário no EasyPanel, de preferência na mesma rede do
+# Supabase (para resolver `db:5432`). Não inclui DuckDB nem a UI.
+#
+# Requer um volume em /data com espaço para os CSVs extraídos (~26 GB no
+# snapshot completo) e variáveis:
+#   DATABASE_URL=postgres://postgres:SENHA@db:5432/postgres
+#   SUPABASE_URL=https://...
+#   SUPABASE_SERVICE_ROLE_KEY=...
+#   SNAPSHOT=2026-10
+
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+COPY package.loader.json ./package.json
+RUN npm install --include=dev --no-audit --no-fund
+COPY tsconfig.loader.json ./tsconfig.loader.json
+COPY src/config.ts ./src/config.ts
+COPY src/db/loadSnapshot.ts ./src/db/loadSnapshot.ts
+COPY src/db/migrate.ts ./src/db/migrate.ts
+COPY src/ingest/extract.ts ./src/ingest/extract.ts
+COPY src/tools/loadFromStorage.ts ./src/tools/loadFromStorage.ts
+RUN npm run build
+
+FROM node:24-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV DATA_DIR=/data
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY db ./db
+COPY public/geo ./public/geo
+CMD ["node", "dist/src/tools/loadFromStorage.js"]

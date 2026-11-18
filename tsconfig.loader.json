@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "sourceMap": true
+  },
+  "include": [
+    "src/config.ts",
+    "src/db/loadSnapshot.ts",
+    "src/db/migrate.ts",
+    "src/ingest/extract.ts",
+    "src/tools/loadFromStorage.ts"
+  ],
+  "exclude": ["node_modules", "dist", "data"]
+}

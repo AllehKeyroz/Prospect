@@ -512,6 +512,8 @@ node dist/src/tools/syncStorage.js
 
 Detalhes e o comando completo estão em `DEPLOY.md` (seção 10). Não faça esse upload pela sua máquina: o gargalo é o uplink.
 
+O loader que baixa do Storage, extrai e carrega no Postgres está em `Dockerfile.loader` (imagem `:loader`, sem DuckDB); veja `DEPLOY.md` seção 11.
+
 ---
 
 ## 7. Snapshot completo

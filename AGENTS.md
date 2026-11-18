@@ -47,6 +47,7 @@ npm run start:minimal       # runs it (no DuckDB/Postgres imports)
 - Self-hosted Storage caps objects at **50 MB** (global `FILE_SIZE_LIMIT`). `src/tools/syncStorage.ts` downloads from RFB **server-side** and uploads 40 MB parts plus `<SNAPSHOT>/manifest.json`; parts are `_parts/<name>/part-00000`.
 - Run it in the app container (server egress), never from a developer uplink: `SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node dist/src/tools/syncStorage.js`.
 - The loader must read the manifest and concatenate parts using each file's `chunk_size`/`parts`; do not assume a fixed chunk size.
+- `src/tools/loadFromStorage.ts` + `Dockerfile.loader` (`:loader`) materialize the parts into `/data/extracted` and spawn `src/db/loadSnapshot.ts`. It must run in the Supabase network (`DATABASE_URL=postgres://postgres:...@db:5432/postgres`) and is built from `package.loader.json`/`tsconfig.loader.json` without DuckDB.
 - Bucket is private; service role key only server-side. Never put it in the frontend or commit it.
 
 ## Data reality
