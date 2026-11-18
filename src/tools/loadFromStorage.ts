@@ -40,6 +40,7 @@ const ONLY = (process.env.LOAD_ONLY ?? '')
   .filter(Boolean);
 const SKIP_DB = process.env.LOAD_SKIP_DB === 'true';
 const KEEP_ZIP = process.env.LOAD_KEEP_ZIP === 'true';
+const PART_ATTEMPTS = Math.max(1, Number(process.env.LOAD_PART_ATTEMPTS ?? 15) || 15);
 
 interface ManifestEntry {
   name: string;
@@ -103,14 +104,15 @@ async function downloadParts(entry: ManifestEntry, dest: string): Promise<void> 
     const expected = await partSize(entry, index);
     let lastError: unknown = null;
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= PART_ATTEMPTS; attempt++) {
       try {
         const response = await fetch(
           `${SUPABASE_URL}/storage/v1/object/authenticated/${BUCKET}/${SNAPSHOT}/_parts/${entry.name}/${part}`,
           { headers: headers(), signal: AbortSignal.timeout(10 * 60_000) },
         );
         if (!response.ok || !response.body) {
-          throw new Error(`${response.status} ${response.statusText}`);
+          const detail = await response.text().catch(() => '');
+          throw new Error(`${response.status} ${response.statusText} ${detail.slice(0, 300)}`);
         }
         const handle = createWriteStream(dest, { flags: written === 0 ? 'w' : 'a' });
         await pipeline(Readable.fromWeb(response.body as never), handle);
@@ -124,8 +126,8 @@ async function downloadParts(entry: ManifestEntry, dest: string): Promise<void> 
       } catch (error) {
         lastError = error;
         await truncate(dest, written).catch(() => undefined);
-        log(`[erro] ${entry.name} ${part} tentativa ${attempt}/5: ${(error as Error).message}`);
-        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        log(`[erro] ${entry.name} ${part} tentativa ${attempt}/${PART_ATTEMPTS}: ${(error as Error).message}`);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(30, 2 * attempt) * 1000));
       }
     }
 
